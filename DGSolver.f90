@@ -1,4 +1,4 @@
-! f2py -c --f90flags='-O3 -ffast-math -funroll-loops' -m solver DGSolver.f90
+! f2py -c --f90flags='-O3 -ffast-math -funroll-loops' -m dg_solver DGSolver.f90
 
 module types
   ! integer, parameter:: dp=kind(0.d0)
@@ -461,12 +461,11 @@ module fluxes
     end subroutine  !OutFlowFlux
 
 
-   subroutine analyticFlux(U, normal, flux)
+   subroutine analyticFlux(U, flux)
       use constants
 
       real(dp), dimension(4), intent(in) :: U
-      real(dp), dimension(2), intent(in) :: normal
-      real(dp), dimension(4), intent(out) :: flux
+      real(dp), dimension(2,4), intent(out) :: flux
 
 
       real(dp) :: P, H
@@ -486,7 +485,8 @@ module fluxes
               U(3)*U(3)/U(1) + P,&
               U(3)*H/)
 
-      flux =Fx*normal(1) + Fy*normal(2)
+      flux(1, :) = Fx
+      flux(2, :) = Fy
 
    end ! analyticFlux
 

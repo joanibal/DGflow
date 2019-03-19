@@ -2,8 +2,10 @@
 import numpy as np
 
 
-def lgwt(N, a, b):
+def getQuadPts1D(N, a, b):
     """
+    adapted from lwgt.m
+
 
     This script is for computing definite integrals using Legendre-Gauss
     Quadrature. Computes the Legendre-Gauss nodes and weights  on an interval
@@ -66,9 +68,25 @@ def lgwt(N, a, b):
 
 
 def getQuadPtsTri(order):
+    """
+    from quad2d.c
+
+    Dunavant points generated with .m code written by John Burkard
+
+        http://people.scs.fsu.edu/~burkardt/f_src/dunavant/dunavant.html
+
+    1. David Dunavant,
+        High Degree Efficient Symmetrical Gaussian Quadrature Rules for the Triangle,
+        International Journal for Numerical Methods in Engineering,
+        Volume 21, 1985, pages 1129-1148.
+    2. James Lyness, Dennis Jespersen,
+        Moderate Degree Symmetric Quadrature Rules for the Triangle,
+        Journal of the Institute of Mathematics and its Applications,
+        Volume 15, Number 1, February 1975, pages 19-32.
+    """
 
     if order == 0 or order == 1:
-        quadPts = [0.333333333333333, 0.333333333333333]
+        quadPts = [[0.333333333333333, 0.333333333333333]]
         quadWts = [0.500000000000000]
 
     elif order == 2:
@@ -154,7 +172,7 @@ def getTriLagrangeBasis2D(p):
     C = C.T
 
     # compute dPhi_dxi and dPhi_deta
-
+    # hard to explain but iw you work through it by hand this is the pattern emerges
     Cx = np.zeros(C.shape)
     Cy = np.zeros(C.shape)
     kk = 0
