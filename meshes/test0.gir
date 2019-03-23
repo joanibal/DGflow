@@ -1,0 +1,13 @@
+2 1 2
+0. 0.
+1. 0.
+0. 1.
+4
+1 2 Wall-bottom
+1 2
+1 2 Outlet-Right
+2 3
+1 2 Inlet-Left
+3 1
+1 1 TriLagrange
+1 2 3

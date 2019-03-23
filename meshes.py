@@ -7,6 +7,7 @@ import numpy as np
 import copy
 import matplotlib.pyplot as plt
 
+import quadrules
 # TODO
 # add logger
 # add error handeling
@@ -22,7 +23,7 @@ def getNormal(nodesEdgeXY, nodeXY):
 
 class Mesh(object):
 
-    def __init__(self, gridFile=None, elem2Node=None, node2Pos=None, BCs=None, check=True):
+    def __init__(self, gridFile=None, wallGeomFunc=None,  elem2Node=None, node2Pos=None, BCs=None, check=False):
         """
             initializes Mesh object from a gri mesh file
 
@@ -35,7 +36,7 @@ class Mesh(object):
         self.nDim = 2
 
         if gridFile:
-            self.node2Pos, self.elem2Node, self.BCs = self.readGrid(gridFile)
+            self.node2Pos, self.elem2Node, self.BCs, self.elemOrder = self.readGrid(gridFile)
         elif (elem2Node.any() and node2Pos.any() and BCs):
             self.elem2Node = elem2Node
             self.node2Pos = node2Pos
@@ -45,13 +46,14 @@ class Mesh(object):
         self.nNodes = len(self.node2Pos)
         self.nBCs = len(self.BCs)
 
+        self.wallGeomFunc = wallGeomFunc
         # self.inEdge2Elem, self.inNormal, self.inLength, self.bcEdge2Elem, self.bcNormal, self.bcLength, self.area, self.cellCenter
 
         # for efficency this was written was one big ugly loop/function
         outputs = self.preprocess()
         self.inEdge2Elem, self.inNormal, self.inLength = outputs[:3]
         self.bcEdge2Elem, self.bcNormal, self.bcLength = outputs[3:6]
-        self.area, self.cellCenter, self.elem2dX = outputs[6:]
+        self.area, self.cellCenter, self.elem2dX, self.wallEdges = outputs[6:]
         # self.elem2dX, self.cellCenter = self.getDistance2CellCenter()
 
         self.nInEdge = len(self.inEdge2Elem)
@@ -59,6 +61,8 @@ class Mesh(object):
 
         if check:
             self.checkMesh()
+        else:
+            print('*mesh not checked*')
 
 # IO stuff
     def readGrid(self, fileName):
@@ -86,12 +90,19 @@ class Mesh(object):
                 # read elements
                 Ne0 = 0
                 E = []
+                elemOrder = {}
                 while (Ne0 < nElem):
                     s = fid.readline().split()
                     ne = int(s[0])
+                    pe = int(s[1])
                     Ei = np.array(
                         [[int(s) - 1 for s in fid.readline().split()] for n in range(ne)])
                     E = Ei if (Ne0 == 0) else np.concatenate((E, Ei), axis=0)
+
+                    if pe in elemOrder:
+                        elemOrder[pe] = np.append(elemOrder[pe], np.arange(Ne0, Ne0 + ne))
+                    else:
+                        elemOrder[pe] = np.arange(Ne0, Ne0 + ne)
                     Ne0 += ne
 
             elif fileName[-3:] == 'su2':
@@ -125,7 +136,7 @@ class Mesh(object):
             else:
                 raise Exception
 
-        return V, E, BCs
+        return V, E, BCs, elemOrder
 
     def writeGrid(self, fileName, gridFormat='gri'):
 
@@ -167,6 +178,8 @@ class Mesh(object):
         cellCenter = np.zeros((self.nElem, 2))
         elem2dX = np.zeros((self.nElem, 3, 2))
 
+        wallEdges = []
+
         for idx_elem in range(self.nElem):
             nodes = self.elem2Node[idx_elem]
 
@@ -206,6 +219,9 @@ class Mesh(object):
 
                     bcLength.append(edgeLength)
 
+                    # add to the list of wall edges if it is indeed a wall edge\
+                    if 'wall' in self.BCs.keys()[bcGroupIdx]:
+                        wallEdges.append(len(B2E) - 1)
                     continue  # if the nodes are on a BC don't add it to the list
 
                 # information about the edge used for the I2E array
@@ -231,7 +247,7 @@ class Mesh(object):
                     inLength.append(np.linalg.norm(
                         nodesEdgeXY[0] - nodesEdgeXY[1]))
 
-        return np.array(I2E), np.array(In), np.array(inLength), np.array(B2E), np.array(Bn), np.array(bcLength), area, cellCenter, elem2dX
+        return np.array(I2E), np.array(In), np.array(inLength), np.array(B2E), np.array(Bn), np.array(bcLength), area, cellCenter, elem2dX, np.array(wallEdges)
 
     def getDistance2CellCenter(self):
         """
@@ -269,8 +285,10 @@ class Mesh(object):
             in each direction for each element
         """
         # check that all the normals are unit
-        np.testing.assert_almost_equal(np.linalg.norm(
-            self.inNormal, axis=1), np.ones(len(self.inNormal)))
+        if self.inNormal.size:  # check to make sure we have interrior edges
+            np.testing.assert_almost_equal(np.linalg.norm(
+                self.inNormal, axis=1), np.ones(len(self.inNormal)))
+
         np.testing.assert_almost_equal(np.linalg.norm(
             self.bcNormal, axis=1), np.ones(len(self.bcNormal)))
 
@@ -360,7 +378,7 @@ class Mesh(object):
 
         self.__init__(elem2Node=elem2Node, node2Pos=node2Pos, BCs=BCs)
 
-    def plot(self, fileName=None):
+    def plot(self, fileName=None, geomOrder=1):
         plt.figure(figsize=(12, 4))
 
         bc_colors = ['-b', '-g', '-m', '-r']
@@ -395,36 +413,173 @@ class Mesh(object):
             nodes = np.vstack((nodes, nodes[0]))
             plt.plot(nodes[:, 0], nodes[:, 1], 'k')
 
-    def getJacobian(self):
+    def getLinearJacobian(self):
 
-        detJ = np.zeros(self.nElem)
-        invJ = np.zeros((self.nElem, self.nDim, self.nDim))
-        for elem in range(self.nElem):
-            nodes = self.node2Pos[self.elem2Node[elem]]
+        n1OrderElem = len(self.elemOrder[1])
+        detJ = np.zeros(n1OrderElem)
+        invJ = np.zeros((n1OrderElem, self.nDim, self.nDim))
 
-            # from eqn 4.3.8 in notes
-            J = np.array([[nodes[1][0] - nodes[0][0], nodes[2][0] - nodes[0][0]],
-                          [nodes[1][1] - nodes[0][1], nodes[2][1] - nodes[0][1]]])
-            detJ[elem] = np.linalg.det(J)
-            invJ[elem] = np.linalg.inv(J)
+        if 1 in self.elemOrder:
+            for elem in self.elemOrder[1]:
+                nodes = self.node2Pos[self.elem2Node[elem]]
+
+                # from eqn 4.3.8 in notes
+                J = np.array([[nodes[1][0] - nodes[0][0], nodes[2][0] - nodes[0][0]],
+                              [nodes[1][1] - nodes[0][1], nodes[2][1] - nodes[0][1]]])
+                detJ[elem] = np.linalg.det(J)
+                invJ[elem] = np.linalg.inv(J)
 
         return invJ, detJ
 
+    def getHighOrderNodes(self):
+        """
+        finds the location of the high order nodes on the mesh
+        """
+        highOrder = self.elemOrder.keys()
+        # if 1 in highOrder:
+        #     highOrder.remove(1)
+
+        self.elem2HighOrderNode = {}
+
+        # for q in highOrder:
+        for q in highOrder:
+            # nBasis, basis = quadrules.getTriLagrangeBasis2D(q)
+            # q = 1
+            nHiOrderElem = len(self.elemOrder[q])
+            xi = np.linspace(0, 1, q+1)
+            eta = xi
+            N = (q+1)*(q+2)//2
+
+            Xi = np.zeros((N, 2))
+            idx = 0
+            for iy in range(q+1):
+                for ix in range(q-iy+1):  # loop over nodes
+                    Xi[idx] = np.array([xi[ix], eta[iy]])
+                    idx += 1
+
+            self.elem2HighOrderNode[q] = np.zeros((nHiOrderElem, N, 2))
+
+            self.elemIdx2HiOrderElemIdx = np.ones(self.nElem, dtype=int)*10**10
+
+            for idx_hiOrderElem, elem in enumerate(self.elemOrder[q]):
+                nodes = self.node2Pos[self.elem2Node[elem]]
+
+                J = np.array([[nodes[1][0] - nodes[0][0], nodes[2][0] - nodes[0][0]],
+                              [nodes[1][1] - nodes[0][1], nodes[2][1] - nodes[0][1]]])
+
+                # map the nodes to physcial space using a linear jacobain
+                self.elem2HighOrderNode[q][idx_hiOrderElem] = nodes[0] + np.matmul(J, Xi.T).T
+                self.elemIdx2HiOrderElemIdx[elem] = idx_hiOrderElem
+
+            # loop over wall nodes and snap nodes on wall face to edge and move nodes inside up slightly
+            for edge in self.bcEdge2Elem[self.wallEdges]:
+                idx_hiElem = self.elemIdx2HiOrderElemIdx[edge[0]]
+                idx_face = edge[1]
+                # depending on which face is on the wall different nodes need to be adjusted
+                nodes2Move = []
+                if idx_face == 0:
+                    nodeIdxs = [2*q]
+                    for ii in range(q-1, 1, -1):
+                        nodeIdxs.append(nodeIdxs[-1] + ii)
+
+                    nodes2Move.append(nodeIdxs)
+                    for ii in range(q - 2, 0, -1):
+                        nodes2Move.append([x - 1 for x in nodes2Move[-1][:-1]])
+
+                elif idx_face == 1:
+                    nodeIdxs = [1 + q]
+                    for ii in range(q-1, 1, -1):
+                        nodeIdxs.append(nodeIdxs[-1] + ii + 1)
+
+                    nodes2Move.append(nodeIdxs)
+                    for ii in range(q - 2, 0, -1):
+                        nodes2Move.append([x + 1 for x in nodes2Move[-1][:-1]])
+
+                # different
+                elif idx_face == 2:
+                    nodes2Move.append(range(1, q))
+                    for ii in range(q+1, 3, -1):
+                        nodes2Move.append([x + ii for x in nodes2Move[-1][:-1]])
+
+                else:
+                    raise NotImplementedError
+
+                # snap wall elements y position
+                for idx_row, fact in enumerate(np.linspace(1, 0, q)[:-1]):
+                    for idx_node in nodes2Move[idx_row]:
+                        print(idx_row, idx_node, fact)
+                        self.elem2HighOrderNode[q][idx_hiElem][idx_node][1] +=\
+                            fact*self.wallGeomFunc(
+                                self.elem2HighOrderNode[q][idx_hiElem][idx_node][0])
+
+                # print(self.elem2HighOrderNode[q][idx_hiElem][nodes2Move[0]])
+                # print(self.elem2HighOrderNode[q][idx_hiElem][nodes2Move[1]])
+                # print(self.elem2HighOrderNode[q][idx_hiElem][nodes2Move[2]])
+
+                # print(idx_face, nodes2Move)
+                # plt.plot(self.elem2HighOrderNode[q][idx_hiElem][:, 0],
+                #          self.elem2HighOrderNode[q][idx_hiElem][:, 1], 'o')
+                # plt.xlabel('X')
+                # plt.ylabel('Y')
+                # plt.legend(['Unperturbed', 'Perturbed'])
+                # plt.show()
+
+    def getCurvedJacobian(self, elem, quadPts, quadWts, basis):
+        """
+        returns the value of the jacobian at each of the 1D and 2D quadrature points
+        """
+        # # q = 2
+        # nBasis, basis = quadrules.getTriLagrangeBasis2D(q)
+        # quadPts1D, quadWts1D = quadrules.getQuadPts1D(q, 0, 0.5)
+
+        # quadPts2D = quadrules.getQuadPts2D(q+1)
+        # for pt in quadPts2D:
+        elem = 0
+
+        # import ipdb
+        # ipdb.set_trace()
+        integral = 0
+        J = np.zeros((len(quadWts), 2, 2))
+
+        for idx, pt in enumerate(quadPts):
+            _, gphi = basis(pt)
+            J[idx] = np.matmul(self.elem2HighOrderNode[q][elem].T, gphi[0])
+
+            # t_ds_dsig=J[:, 0]
+            # print(J, pt,  quadWts[idx])
+
+            # # the result of crossing the trangent vector with k hat
+            # n=np.array([t_ds_dsig[1], -t_ds_dsig])
+            # # quit()
+            # # print
+
+            # integral += np.abs(t_ds_dsig)*quadWts[idx]
+
+        # print(integral, np.sum(quadWts))
+        return J
+        # for elem in range(self.elemOrder[q]):
 
         # def plotBCs(self):
         #     for BCname in self.BCs.keys():
 if __name__ == '__main__':
 
-    test = Mesh('meshes/test.gri')
+    def flatWall(x):
+        return -x*(x-1)
+
+    test = Mesh('meshes/test0_21.gri', wallGeomFunc=flatWall)
     # test = Mesh('meshes/bump0_kfid.gri')
 
-    test.refine()
-    test.getJacobian()
+    # test.refine()
+    test.getHighOrderNodes()
+    pt = np.array([0, 5])
+
+    # test.getCurvedJacobian(2, pt)
+    # test.getLinearJacobian()
     # print(test.inEdge2Elem)
     # print(test.bcEdge2Elem)
     # print(test.elem2Node)
     # print(test.node2Pos)
     # # test.refine()
     # # test.refine()
-    test.plot()
-    plt.show()
+    # test.plot()
+    # plt.show()

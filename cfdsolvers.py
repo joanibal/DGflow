@@ -96,7 +96,7 @@ class DGSolver(object):
 
         self.invM = np.zeros((self.mesh.nElem, self.nBasis, self.nBasis))
 
-        self.invJ, self.detJ = self.mesh.getJacobian()
+        self.invJ, self.detJ = self.mesh.getLinearJacobian()
         for k in range(self.mesh.nElem):
             M = self.detJ[k] * np.matmul(np.matmul(self.Phi.T, np.diag(self.quadWts2D)), self.Phi)
             self.invM[k] = np.linalg.inv(M)
@@ -195,6 +195,8 @@ class DGSolver(object):
             uR = np.matmul(self.rightEdgePhi[idx_edge_right], self.U[idx_elem_right])
 
             for idx_basis in range(self.nBasis):
+                import ipdb
+                ipdb.set_trace()
                 Rtot_left = np.zeros(self.nStates)
                 Rtot_right = np.zeros(self.nStates)
                 Stot_left = 0
@@ -528,7 +530,7 @@ if __name__ == '__main__':
     bump = Mesh('meshes/bump0.gri')
     # bump = Mesh('meshes/test2.gri')
 
-    DGSolver = DGSolver(bump, order=1)
+    DGSolver = DGSolver(bump, order=0)
     # DGprint(FVSolver.getResidual())
     DGSolver.solve()
     # DGSolver.writeSolution_lite('test2')
