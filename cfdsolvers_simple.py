@@ -71,6 +71,9 @@ class DGSolver(object):
         self.inlet = temp_inlet
         self.outlet = temp_outlet
 
+        # ====================================================
+        #  Qaud rules for the solution
+        # ====================================================
         # % quadrature points sufficient to integrate 2*p in 1D and 2D
 
         # these are 1d points form 0 to 1 (used for edge integration)
@@ -87,9 +90,6 @@ class DGSolver(object):
         # number of degrees of freedom
         # Ndof = nelem*nn
 
-        self.initFreestream()
-
-        # % calculate inverse mass matrix for each element
         self.Phi = np.zeros((self.nQuadPts2D, self.nBasis))
         self.dPhi_dXi = np.zeros((self.nQuadPts2D, self.nBasis, self.mesh.nDim))
 
@@ -99,33 +99,75 @@ class DGSolver(object):
             # the basis function value at each of the quad points
             self.Phi[idx], self.dPhi_dXi[idx] = self.basis(pt)
 
+        self.initFreestream()
+
+        # ====================================================
+        #  Qaud rules for the mesh (assuming all elements are high order)
+        # ====================================================
+
+        # can't use dictionaries in fortran so unpack
+        self.elemOrder = self.mesh.elemOrder.keys()
+        self.elems = self.mesh.elemOrder. values()
+
+        self.mesh.getHighOrderNodes()
+
+       # these are 1d points form 0 to 1 (used for edge integration)
+        self.quadPts1DElem, self.quadWts1DElem = quadrules.getQuadPts1D(self.geomOrder+1, 0, 1)
+        self.nQuadPts1DElem = len(self.quadWts1DElem)
+
+        # these are 2d points of a tri element in reference space
+        self.quadPts2DElem, self.quadWts2DElem = quadrules.getQuadPtsTri(self.geomOrder+1)
+        self.nQuadPts2DElem = len(self.quadWts2DElem)
+
+        # nQuadPts2DElem, quadPts2DElem, quadWts2DElem = quadrules.quad2d(nQuadPts1DElem, 0, 1)
+
+        self.nBasisElem, self.basisElem = quadrules.getTriLagrangeBasis2D(self.geomOrder)
+
+        # % calculate inverse mass matrix for each element
+        self.Phi_Elem = np.zeros((self.nQuadPts2DElem, self.nBasis))
+        self.dPhi_dXi_Elem = np.zeros((self.nQuadPts2DElem, self.nBasis, self.mesh.nDim))
+
+        # import ipdb
+        # ipdb.set_trace()
+        for idx, pt in enumerate(self.quadPts2DElem):
+            # the basis function value at each of the quad points
+            self.Phi_Elem[idx], self.dPhi_dXi_Elem[idx] = self.basis(pt)
+
         self.invM = np.zeros((self.mesh.nElem, self.nBasis, self.nBasis))
 
-        self.invJ, self.detJ = self.mesh.getLinearJacobian()
+        # self.invJ, self.detJ = self.mesh.getLinearJacobian()
+
+        # get jacobian
+        self.J = np.zeros((self.mesh.nElem, self.nQuadPts2DElem, 2, 2))
+        self.invJ = np.zeros((self.mesh.nElem, self.nQuadPts2DElem, 2, 2))
+        self.detJ = np.zeros((self.mesh.nElem, self.nQuadPts2DElem))
+
+        for elem in range(self.mesh.nElem):
+            # print elem
+            self.J[elem], self.invJ[elem], self.detJ[elem] = self.mesh.getCurvedJacobian(self.geomOrder,
+                                                                                         elem, self.quadPts2DElem, self.basisElem)[:3]
         for k in range(self.mesh.nElem):
-            M = self.detJ[k] * np.matmul(np.matmul(self.Phi.T, np.diag(self.quadWts2D)), self.Phi)
+            M = np.matmul(np.matmul(self.Phi_Elem.T, np.diag(
+                self.detJ[k]*self.quadWts2DElem)), self.Phi_Elem)
             self.invM[k] = np.linalg.inv(M)
 
         # precompute the values of the basis functions are each edge of the reference element
 
-        # import ipdb
-        # ipdb.set_trace()
-
-        # 3 because there are three faces of a triangel
-        self.leftEdgePhi = np.zeros((3, self.nQuadPts1D, self.nBasis))
-        self.rightEdgePhi = np.zeros((3, self.nQuadPts1D, self.nBasis))
+        # 3 because there are three faces of a triangle
+        self.leftEdgePhi = np.zeros((3, self.nQuadPts1DElem, self.nBasis))
+        self.rightEdgePhi = np.zeros((3, self.nQuadPts1DElem, self.nBasis))
         for edge in range(3):
             # map 2D fave coordinates to
-            pts = np.zeros((self.nQuadPts1D, 2))
+            pts = np.zeros((self.nQuadPts1DElem, 2))
             if edge == 0:
-                pts[:, 0] = 1 - self.quadPts1D
-                pts[:, 1] = self.quadPts1D
+                pts[:, 0] = 1 - self.quadPts1DElem
+                pts[:, 1] = self.quadPts1DElem
             elif edge == 1:
                 pts[:, 0] = 0
-                pts[:, 1] = 1 - self.quadPts1D
+                pts[:, 1] = 1 - self.quadPts1DElem
 
             elif edge == 2:
-                pts[:, 0] = self.quadPts1D
+                pts[:, 0] = self.quadPts1DElem
                 pts[:, 1] = 0
 
             for idx, pt in enumerate(pts):
@@ -136,48 +178,47 @@ class DGSolver(object):
                 # the basis function value at each of the quad points
                 self.rightEdgePhi[edge, idx], _ = self.basis(pt)
 
-        # import ipdb
-        # ipdb.set_trace()
+        # calculate Jedge
+        # for each element, for each edge, for each quad pt
+        self.detJEdge = np.zeros((self.mesh.nElem,  3, self.nQuadPts1DElem))
+        self.normalEdge = np.zeros((self.mesh.nElem,  3, self.nQuadPts1DElem, 2))
+        for elem in range(self.mesh.nElem):
+            for edge in range(3):
+                pts = np.zeros((self.nQuadPts1DElem, 2))
+                if edge == 0:
+                    pts[:, 0] = 1 - self.quadPts1DElem
+                    pts[:, 1] = self.quadPts1DElem
+                    dXi_dX = np.array([-1, 1])
 
+                elif edge == 1:
+                    pts[:, 0] = 0
+                    pts[:, 1] = 1 - self.quadPts1DElem
+                    dXi_dX = np.array([0, -1])
+
+                elif edge == 2:
+                    pts[:, 0] = self.quadPts1DElem
+                    pts[:, 1] = 0
+                    dXi_dX = np.array([1, 0])
+
+                J = self.mesh.getCurvedJacobian(
+                    self.geomOrder, elem, pts, self.basisElem)[0]
+
+                for q in range(len(J)):
+                    tang_vec = J[q][:, 0]*dXi_dX[0] + J[q][:, 1]*dXi_dX[1]
+                    self.normalEdge[elem][edge][q] = np.array([tang_vec[1], -tang_vec[0]])
+
+                    self.detJEdge[elem][edge][q] = np.linalg.norm(self.normalEdge[elem][edge][q])
+                    self.normalEdge[elem][edge][q] /= self.detJEdge[elem][edge][q]
+
+                print(edge, self.normalEdge[elem][edge])
+
+        print(self.normalEdge)
+
+        print(self.detJEdge)
+        # quit()
         # ==================================
         # intialize curved element stuff
         # ==================================
-        # can't use dictionaries in fortran :( so unpack)
-        # self.elemOrder = self.mesh.elemOrder.keys()
-        # self.elems = self.mesh.elemOrder. values()
-
-        # self.mesh.getHighOrderNodes()
-
-        # for idx_q, q in enumerate(self.elemOrder.keys()):
-        #     # get higher order quadrature rules to be used for the curved element
-        #     self.quadPts1DCurElem, self.quadWts1DCurElem = quadrules.getQuadPts1D(
-        #         self.geomOrder+1, 0, 1)
-
-        #     # these are 2d points of a tri element in reference space
-        #     self.quadPts2DCurElem, self.quadWts2DCurElem = quadrules.getQuadPtsTri(self.geomOrder+1)
-        #     self.nQuadPts2DCurElem = len(self.quadWts2DCurElem)
-
-        #     # get the basis functions representing the higher order geom elements
-        #     self.nBasisCurElem, self.basisCurElem = quadrules.getTriLagrangeBasis2D(self.geomOrder)
-
-        #     # get invJ and detJ for each element for each 2d quad point
-        #     highOrder = self.mesh.elemOrder.keys()
-        #     if 1 in highOrder:
-        #         highOrder.remove(1)
-
-        #     self.elem2HighOrderNode = {}
-
-        # for q in highOrder:
-        #     for elem in self.mesh.elemOrder[q]:
-
-        #         self.Phi = np.zeros((self.nQuadPts2D, self.nBasis))
-        #         self.dPhi_dXi = np.zeros((self.nQuadPts2D, self.nBasis, self.mesh.nDim))
-
-        #         # import ipdb
-        #         # ipdb.set_trace()
-        #         for idx, pt in enumerate(self.quadPts2D):
-        #             # the basis function value at each of the quad points
-        #             self.Phi[idx], self.dPhi_dXi[idx] = self.basis(pt)
 
     def initFreestream(self):
         # calculate conversed qualities
@@ -209,7 +250,7 @@ class DGSolver(object):
         self.S = np.zeros(self.mesh.nElem)
 
         self.getInteralResiduals()
-        # print R
+        # print('internal', self.R)
         self.getEdgeResiduals()
 
         # return R
@@ -221,13 +262,14 @@ class DGSolver(object):
 
             for idx_basis in range(self.nBasis):
                 Rtot = 0
-                Uq = np.matmul(self.Phi, self.U[idx_elem])
-                for q in range(self.nQuadPts2D):
+                Uq = np.matmul(self.Phi_Elem, self.U[idx_elem])
+                for q in range(self.nQuadPts2DElem):
                     flux = fluxes.analyticflux(Uq[q])
-                    Rtot += np.dot(np.matmul(self.dPhi_dXi[q, idx_basis], self.invJ[idx_elem]), flux) *\
-                        self.quadWts2D[q]*self.detJ[idx_elem]
+                    Rtot += np.dot(np.matmul(self.dPhi_dXi_Elem[q, idx_basis], self.invJ[idx_elem, q]), flux) *\
+                        self.quadWts2DElem[q]*self.detJ[idx_elem, q]
 
                 self.R[idx_elem, idx_basis] -= Rtot
+
         # return R
 
     def getEdgeResiduals(self):
@@ -239,6 +281,8 @@ class DGSolver(object):
             idx_elem_right = self.mesh.inEdge2Elem[idx_edge, 2]
             idx_edge_right = self.mesh.inEdge2Elem[idx_edge, 3]
 
+            import ipdb
+            ipdb.set_trace()
             uL = np.matmul(self.leftEdgePhi[idx_edge_left], self.U[idx_elem_left])
             uR = np.matmul(self.rightEdgePhi[idx_edge_right], self.U[idx_elem_right])
 
@@ -272,88 +316,69 @@ class DGSolver(object):
                 self.S[idx_elem_right] += Stot_right
 
         for idx_edge in range(self.mesh.nBCEdge):
-            idx_elem_left = self.mesh.bcEdge2Elem[idx_edge, 0]
+            idx_elem = self.mesh.bcEdge2Elem[idx_edge, 0]
             idx_edge_left = self.mesh.bcEdge2Elem[idx_edge, 1]
             bc = self.mesh.bcEdge2Elem[idx_edge, 2]
 
-            uL = np.matmul(self.leftEdgePhi[idx_edge_left], self.U[idx_elem_left])
+            uL = np.matmul(self.leftEdgePhi[idx_edge_left], self.U[idx_elem])
 
-            if any(bc == self.wall):
-                for idx_basis in range(self.nBasis):
-                    Rtot_left = np.zeros(self.nStates)
-                    Stot_left = 0
+            for idx_basis in range(self.nBasis):
+                Rtot_left = np.zeros(self.nStates)
+                Stot_left = 0
 
-                    for q in range(self.nQuadPts1D):
+                for q in range(self.nQuadPts1DElem):
 
-                        flux, s = fluxes.wallflux(uL[q], self.mesh.bcNormal[idx_edge])
+                    if any(bc == self.wall):
+                        flux, s = fluxes.wallflux(uL[q], self.normalEdge[idx_elem, idx_edge][[q]])
 
-                        # flux * delta L * wq
-                        tmp = flux*self.mesh.bcLength[idx_edge] * self.quadWts1D[q]
-
-                        Rtot_left += self.leftEdgePhi[idx_edge_left, q, idx_basis] * tmp
-                        Stot_left += s*self.mesh.bcLength[idx_edge]*self.quadWts1D[q]
-
-                    self.R[idx_elem_left, idx_basis] += Rtot_left
-                    self.S[idx_elem_left] += Stot_left
-
-            elif any(bc == self.inlet):
-                for idx_basis in range(self.nBasis):
-                    Rtot_left = np.zeros(self.nStates)
-                    Stot_left = 0
-
-                    for q in range(self.nQuadPts1D):
-
+                    elif any(bc == self.inlet):
                         flux, s = fluxes.inflowflux(
-                            self.tempTotInf, self.Ptot_inf, 0.0, uL[q], self.mesh.bcNormal[idx_edge])
-
-                        # flux * delta L * wq
-                        tmp = flux*self.mesh.bcLength[idx_edge] * self.quadWts1D[q]
-
-                        Rtot_left += self.leftEdgePhi[idx_edge_left, q, idx_basis] * tmp
-                        Stot_left += s*self.mesh.bcLength[idx_edge]*self.quadWts1D[q]
-
-                    self.R[idx_elem_left, idx_basis] += Rtot_left
-                    self.S[idx_elem_left] += Stot_left
-
-            elif any(bc == self.outlet):
-                for idx_basis in range(self.nBasis):
-                    Rtot_left = np.zeros(self.nStates)
-                    Stot_left = 0
-                    for q in range(self.nQuadPts1D):
-
+                            self.tempTotInf, self.Ptot_inf, 0.0, uL[q], self.normalEdge[idx_elem, idx_edge][[q]])
+                    elif any(bc == self.outlet):
                         flux, s = fluxes.outflowflux(
-                            self.P_inf, uL[q], self.mesh.bcNormal[idx_edge])
+                            self.P_inf, uL[q], self.normalEdge[idx_elem, idx_edge][[q]])
+                    else:
+                        print(bc)
+                        raise NotImplementedError
 
-                        # flux * delta L * wq
-                        tmp = flux*self.mesh.bcLength[idx_edge] * self.quadWts1D[q]
+                    # flux * delta L * wq
+                    # import ipdb
+                    # ipdb.set_trace()
+                    tmp = flux*self.detJEdge[idx_elem, idx_edge, q] * self.quadWts1DElem[q]
+                    # if any(bc == self.outlet):
+                    # print('tmp', tmp)
+                    # print('flux', flux)
+                    # print('detJ', self.detJEdge[idx_elem, idx_edge, q])
 
-                        Rtot_left += self.leftEdgePhi[idx_edge_left, q, idx_basis] * tmp
-                        Stot_left += s*self.mesh.bcLength[idx_edge]*self.quadWts1D[q]
+                    Rtot_left += self.leftEdgePhi[idx_edge_left, q, idx_basis] * tmp
+                    Stot_left += s*self.detJEdge[idx_elem, idx_edge, q]*self.quadWts1DElem[q]
 
-                    self.R[idx_elem_left, idx_basis] += Rtot_left
-                    self.S[idx_elem_left] += Stot_left
+                # print(bc, 'Rtot_left', Rtot_left)
+                # print(self.R)
 
-            else:
-                print(bc)
-                raise NotImplementedError
+                self.R[idx_elem, idx_basis] += Rtot_left
+                # print(self.R)
+                # import ipdb
+                # ipdb.set_trace()
+                self.S[idx_elem] += Stot_left
+            # print(self.R)
+        # for idx_basis in range(self.nBasis):
+        #     Rtot_left = np.zeros(self.nStates)
+        #     Stot_left = 0
+        #     for q in range(self.nQuadPts1D):
 
-            # for idx_basis in range(self.nBasis):
-            #     Rtot_left = np.zeros(self.nStates)
-            #     Stot_left = 0
-            #     for q in range(self.nQuadPts1D):
+        #         U_edge = np.vstack((uL[q], self.Ub)).T
 
-            #         U_edge = np.vstack((uL[q], self.Ub)).T
+        #         flux, s = fluxes.roeflux(U_edge, self.mesh.bcNormal[idx_edge])
 
-            #         flux, s = fluxes.roeflux(U_edge, self.mesh.bcNormal[idx_edge])
+        #         # flux * delta L * wq
+        #         tmp = flux*self.mesh.bcLength[idx_edge] * self.quadWts1D[q]
 
-            #         # flux * delta L * wq
-            #         tmp = flux*self.mesh.bcLength[idx_edge] * self.quadWts1D[q]
+        #         Rtot_left += self.leftEdgePhi[idx_edge_left, q, idx_basis] * tmp
+        #         Stot_left += s*self.mesh.bcLength[idx_edge]*self.quadWts1D[q]
 
-            #         Rtot_left += self.leftEdgePhi[idx_edge_left, q, idx_basis] * tmp
-            #         Stot_left += s*self.mesh.bcLength[idx_edge]*self.quadWts1D[q]
-
-            #     self.R[idx_elem_left, idx_basis] += Rtot_left
-            #     self.S[idx_elem_left] += Stot_left
+        #     self.R[idx_elem_left, idx_basis] += Rtot_left
+        #     self.S[idx_elem_left] += Stot_left
 
         # return R
 
@@ -366,6 +391,9 @@ class DGSolver(object):
         # print self.U
 
         self.getResidual()
+        # print(self.R)
+        # quit()
+
         dt = 2*self.mesh.area*cfl/self.S
         # print dt
         for idx_elem in range(self.mesh.nElem):
@@ -381,7 +409,7 @@ class DGSolver(object):
 
         # print self.U
 
-    def solve(self, maxIter=20, tol=1e-7, cfl=0.9, freeStreamTest=False):
+    def solve(self, maxIter=100, tol=1e-7, cfl=0.9, freeStreamTest=False):
 
         # solver.cfl = cfl
         # solver_constants.mode = freeStreamTest
@@ -485,45 +513,107 @@ class DGSolver(object):
         # so all the array values are printed
         np.set_printoptions(threshold=np.inf)
 
+        # for each set of elements of the same geoemtric order
         with open(fileName + '.dat', 'w') as fid:
+
             fid.write('TITLE = "bump"\n')
-            fid.write(
-                'Variables="X", "Y", "U", "V", "rho", "P", "M", "rhoRes", "num"\n')
-            fid.write('ZONE\n')
-            fid.write('T="Zone Title"\n')
-            fid.write('DataPacking=Block\n')
-            fid.write('ZoneType=FETRIANGLE\n')
-            fid.write('N='+str(self.mesh.nNodes) +
-                      ' E=' + str(self.mesh.nElem)+'\n')
-            fid.write('VarLocation=([3-9]=CellCentered)\n')
+            # fid.write('Variables="X", "Y", "U", "V", "rho", "P", "M", "rhoRes"\n')
+            fid.write('Variables="X", "Y", "U", "V", "rho"\n')
+            for q in self.mesh.elemOrder.keys():
 
-            fid.write('#XData (Grid Variables must be nodal)\n')
-            fid.write(str(self.mesh.node2Pos[:, 0])[1:-1]+'\n')
-            fid.write('#YData (Grid Variables must be nodal)\n')
-            fid.write(str(self.mesh.node2Pos[:, 1])[1:-1]+'\n')
+                # get the basis functions for the mapping
+                # this is a little bit of extra work for the linear elements, but it always us to
+                # write the next loop without conditional statments (if q==1) which is nice and clean
 
-            fid.write('#U Data \n')
-            fid.write(str(self.U[:, 1]/self.U[:, 0])[1:-1]+'\n')
+                #
+                nBasis, basis = quadrules.getTriLagrangeBasis2D(q)
 
-            fid.write('#V Data \n')
-            fid.write(str(self.U[:, 2]/self.U[:, 0])[1:-1]+'\n')
+                # these are the points(in reference space) where the function will be evaluated
+                interpOrder = min([self.order+3, q+4])
+                Xi = quadrules.getTriLagrangePts2D(interpOrder)
 
-            fid.write('#rho Data \n')
-            fid.write(str(self.U[:, 0])[1:-1]+'\n')
+                # create element connectivity
+                N = len(Xi)
 
-            fid.write('#P Data \n')
-            fid.write(str(solver_post.p)[1:-1]+'\n')
-            fid.write('#M Data \n')
-            fid.write(str(solver_post.mach)[1:-1]+'\n')
-            fid.write('#rhoRes Data \n')
-            fid.write(str(solver.res[0, :])[1:-1]+'\n')
+                nodes = np.arange(1, N+1)
 
-            fid.write('#number Data \n')
-            fid.write(str(np.arange(self.mesh.nElem)+1)[1:-1]+'\n')
+                rows = []
+                k = 0
+                for ii in range(1, interpOrder+1)[::-1]:
+                    rows.append(nodes[k:k+ii+1])
+                    k += ii+1
 
-            fid.write('#Connectivity List\n')
-            for jj in range(self.mesh.nElem):
-                fid.write(str(self.mesh.elem2Node[jj]+1)[1:-1]+'\n')
+                # conn = np.zeros(interpOrder**2, 3)
+                conn = []
+                # idx_conn = 0
+                for idx, row in enumerate(rows):
+                    # do add the top and bottom elements to the connectivity matrix
+                    k = len(row)
+
+                    if idx > 0:
+                        # add the elements below this row of nodes
+                        for i in range(k-1):
+                            conn.append([row[i], row[i+1], row[i]-k])
+
+                    # add the elements above the row
+                    for i in range(k-1):
+                        conn.append([row[i], row[i+1], row[i+1]+k-1])
+                conn = np.array(conn)
+                # import ipdb
+                # ipdb.set_trace()
+
+                geomPhi = np.zeros((len(Xi), nBasis))
+                solPhi = np.zeros((len(Xi), self.nBasis))
+
+                for idx, pt in enumerate(Xi):
+                    # the basis function value at each of the quad points
+                    geomPhi[idx], _ = basis(pt)
+                    solPhi[idx], _ = self.basis(pt)
+
+                # loop over elements now
+                for idx_elem in self.mesh.elemOrder[q]:
+                    # nodesPos = self.mesh.node2Pos[self.mesh.elem2Node[idx_elem]]
+                    nodesPos = self.mesh.elem2HighOrderNode[q][idx_elem]
+                    Upts = np.matmul(solPhi, self.U[idx_elem])
+                    Xpts = np.matmul(geomPhi, nodesPos)
+
+                    # writeZone()
+                    print(idx_elem)
+                    fid.write('ZONE\n')
+                    fid.write('T="elem '+str(idx_elem)+'"\n')
+                    fid.write('DataPacking=Block\n')
+                    fid.write('ZoneType=FETRIANGLE\n')
+                    fid.write('N=' + str(N) +
+                              ' E=' + str(interpOrder**2)+'\n')
+                    # fid.write('VarLocation=([3-9]=CellCentered)\n')
+
+                    fid.write('#XData (Grid Variables must be nodal)\n')
+                    fid.write(str(Xpts[:, 0])[1:-1]+'\n')
+                    fid.write('#YData (Grid Variables must be nodal)\n')
+                    fid.write(str(Xpts[:, 1])[1:-1]+'\n')
+
+                    fid.write('#U Data \n')
+                    fid.write(str(Upts[:, 1]/Upts[:, 0])[1:-1]+'\n')
+
+                    fid.write('#V Data \n')
+                    fid.write(str(Upts[:, 2]/Upts[:, 0])[1:-1]+'\n')
+
+                    fid.write('#rho Data \n')
+                    fid.write(str(Upts[:, 0])[1:-1]+'\n')
+
+                    # fid.write('#P Data \n')
+                    # fid.write(str(solver_post.p)[1:-1]+'\n')
+                    # fid.write('#M Data \n')
+                    # fid.write(str(solver_post.mach)[1:-1]+'\n')
+                    # fid.write('#rhoRes Data \n')
+                    # fid.write(str(solver.res[0, :])[1:-1]+'\n')
+
+                    # fid.write('#number Data \n')
+                    # fid.write(str(np.arange(self.mesh.nElem)+1)[1:-1]+'\n')
+
+                    fid.write('#Connectivity List\n')
+                    for idx in range(len(conn)):
+                        fid.write(str(conn[idx])[1:-1]+'\n')
 
         # set np back to normal
         np.set_printoptions(threshold=1000)
@@ -538,7 +628,7 @@ class DGSolver(object):
             fid.write('TITLE = "bump"\n')
             fid.write(
                 'Variables="X", "Y", "U", "V", "rho", "rhoRes", "num"\n')
-            fid.write('ZONE my zone\n')
+            fid.write('ZONE\n')
             fid.write('T="Zone Title"\n')
             fid.write('DataPacking=Block\n')
             fid.write('ZoneType=FETRIANGLE\n')
@@ -576,15 +666,20 @@ class DGSolver(object):
 
 if __name__ == '__main__':
     # bump = Mesh('meshes/bump0.gri')
-    bump = Mesh('meshes/test0_1.gri')
+    # bump = Mesh('meshes/test0_21.gri')
 
-    DGSolver = DGSolver(bump, order=1)
+    def flatWall(x):
+        return x*(x-1)*0.3
+        # return 0
+
+    test = Mesh('meshes/test0_21.gri', wallGeomFunc=flatWall)
+    DGSolver = DGSolver(test, order=1)
     # DGprint(FVSolver.getResidual())
     DGSolver.solve()
-    DGSolver.writeSolution_lite('test_2')
-    # DGFVSolver.writeSolution('lv0')
+    DGSolver.writeSolution('test2')
     # DGFVSolver.
     # DGFVSolver.solve()
     # DGFVSolver.postprocess()
+    # DGFVSolver.writeSolution('lv0')
     # DGFVSolver.plotCP()
     # DGFVSolver.plotResiduals()

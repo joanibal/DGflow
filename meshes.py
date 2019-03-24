@@ -314,6 +314,50 @@ class Mesh(object):
             print('passed mesh check ', np.max(np.abs(elemRes)))
 
 # modification
+
+    def refineElement(self, lv, idx_elem, geomOrder=1):
+        """
+            used for ploting the solution
+            refine a signle element(don't alter the grid though) and return the node list and connectivity
+        """
+        nodes = self.elem2Node[idx_elem]
+        # nodes = set(nodes)
+        newNodesPos = np.zeros((3, 2))
+        newNodes = np.arange(3, 6)
+        elem2Node = np.zeros((4, 3))
+
+        for _ in range(lv):
+            for idx_edge in range(3):
+                localNodeVec = np.delete(np.arange(3), idx_edge)
+                edgeNodes = nodes[localNodeVec]
+
+                newNodesPos[idx_edge] = np.mean(self.node2Pos[edgeNodes], axis=0)
+
+                # check to see if both nodes on the edge are boundary nodes
+                isBCNode = [set(edgeNodes).issubset(set(x))
+                            for x in self.BCs.values()]
+                if any(isBCNode):
+
+                    # add the info to B2W
+                    bcGroupName = self.BCs.keys()[isBCNode.index(True)]
+
+                    if self.wallGeomFunc and 'wall' in bcGroupName:
+                        # use the analytic function for the wall geometry to snap the point to the wall
+                        newNodesPos[idx_edge][1] = self.wallGeomFunc(newNodesPos[idx_edge][0])
+
+            # now we have calculated all the new nodes, loop over the faces and create the elems
+            for idx_edge, n in enumerate(nodes):
+                temp = copy.copy(newNodes)
+
+                temp[idx_edge] = n
+                elem2Node[idx_edge] = temp[::-1]
+
+            # add another node made from all the new nodes
+            elem2Node[3] = newNodes
+
+        print(newNodesPos)
+        print(elem2Node)
+
     def refine(self, geomFunc=None):
         """
             splits every element into 4 elements
@@ -359,7 +403,7 @@ class Mesh(object):
                     bcGroupName = BCs.keys()[isBCNode.index(True)]
                     BCs[bcGroupName] = np.append(BCs[bcGroupName], nodeIdx)
 
-                    if geomFunc and 'wall-bump' in bcGroupName:
+                    if geomFunc and 'wall' in bcGroupName:
                         # use the analytic function for the wall geometry to snap the point to the wall
                         node2Pos[nodeIdx][1] = geomFunc(node2Pos[nodeIdx][0])
 
@@ -436,26 +480,25 @@ class Mesh(object):
         finds the location of the high order nodes on the mesh
         """
         highOrder = self.elemOrder.keys()
-        # if 1 in highOrder:
-        #     highOrder.remove(1)
+        if 1 in highOrder:
+            highOrder.remove(1)
 
         self.elem2HighOrderNode = {}
 
-        # for q in highOrder:
         for q in highOrder:
-            # nBasis, basis = quadrules.getTriLagrangeBasis2D(q)
-            # q = 1
             nHiOrderElem = len(self.elemOrder[q])
-            xi = np.linspace(0, 1, q+1)
-            eta = xi
-            N = (q+1)*(q+2)//2
+            # xi = np.linspace(0, 1, q+1)
+            # eta = xi
+            # N = (q+1)*(q+2)//2
 
-            Xi = np.zeros((N, 2))
-            idx = 0
-            for iy in range(q+1):
-                for ix in range(q-iy+1):  # loop over nodes
-                    Xi[idx] = np.array([xi[ix], eta[iy]])
-                    idx += 1
+            # Xi = np.zeros((N, 2))
+            # idx = 0
+            # for iy in range(q+1):
+            #     for ix in range(q-iy+1):  # loop over nodes
+            #         Xi[idx] = np.array([xi[ix], eta[iy]])
+            #         idx += 1
+            Xi = quadrules.getTriLagrangePts2D(q)
+            N = len(Xi)
 
             self.elem2HighOrderNode[q] = np.zeros((nHiOrderElem, N, 2))
 
@@ -524,13 +567,13 @@ class Mesh(object):
                 # plt.legend(['Unperturbed', 'Perturbed'])
                 # plt.show()
 
-    def getCurvedJacobian(self, elem, quadPts, quadWts, basis):
+    def getCurvedJacobian(self, q, elem, quadPts, basis):
         """
         returns the value of the jacobian at each of the 1D and 2D quadrature points
         """
         # # q = 2
         # nBasis, basis = quadrules.getTriLagrangeBasis2D(q)
-        # quadPts1D, quadWts1D = quadrules.getQuadPts1D(q, 0, 0.5)
+        _, quadWts = quadrules.getQuadPts1D(q+1, 0, 1)
 
         # quadPts2D = quadrules.getQuadPts2D(q+1)
         # for pt in quadPts2D:
@@ -538,39 +581,47 @@ class Mesh(object):
 
         # import ipdb
         # ipdb.set_trace()
-        integral = 0
-        J = np.zeros((len(quadWts), 2, 2))
-
+        J = np.zeros((len(quadPts), 2, 2))
+        invJ = np.zeros((len(quadPts), 2, 2))
+        detJ = np.zeros(len(quadPts))
+        # tang_vec = np.zeros((len(quadPts), 2))
+        n = np.zeros((len(quadPts), 2))
         for idx, pt in enumerate(quadPts):
             _, gphi = basis(pt)
             J[idx] = np.matmul(self.elem2HighOrderNode[q][elem].T, gphi[0])
-
-            # t_ds_dsig=J[:, 0]
-            # print(J, pt,  quadWts[idx])
+            invJ[idx] = np.linalg.inv(J[idx])
+            detJ[idx] = np.linalg.det(J[idx])
+            # print(J[idx])
+            tang_vec = -J[idx][:, 0] + J[idx][:, 1]
+            # print(J[idx], pt)
 
             # # the result of crossing the trangent vector with k hat
-            # n=np.array([t_ds_dsig[1], -t_ds_dsig])
+            n[idx] = np.array([tang_vec[0], -tang_vec[1]])
             # # quit()
             # # print
 
-            # integral += np.abs(t_ds_dsig)*quadWts[idx]
+            # arclength += np.linalg.norm(t_ds_dsig*quadWts[idx])
+            # print(np.linalg.norm(t_ds_dsig))
 
-        # print(integral, np.sum(quadWts))
-        return J
+        # print(arclength, np.sum(quadWts))
+
+        return J, invJ, detJ, n
         # for elem in range(self.elemOrder[q]):
+
 
         # def plotBCs(self):
         #     for BCname in self.BCs.keys():
 if __name__ == '__main__':
 
     def flatWall(x):
-        return -x*(x-1)
+        return -x*(x-1)*0.2
 
     test = Mesh('meshes/test0_21.gri', wallGeomFunc=flatWall)
     # test = Mesh('meshes/bump0_kfid.gri')
 
     # test.refine()
     test.getHighOrderNodes()
+    test.refineElement(0)
     pt = np.array([0, 5])
 
     # test.getCurvedJacobian(2, pt)

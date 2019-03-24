@@ -64,7 +64,7 @@ def getQuadPts1D(N, a, b):
     # Compute the weights
     w = (b-a)/((1-y ** 2)*Lp ** 2)*(float(N2)/N1)**2
 
-    return x, w
+    return x[::-1], w[::-1]
 
 
 def getQuadPtsTri(order):
@@ -210,8 +210,23 @@ def getTriLagrangeBasis2D(p):
     return N, basis
 
 
+def getTriLagrangePts2D(p):
+    xi = np.linspace(0, 1, p+1)
+    eta = xi
+    N = (p+1)*(p+2)//2
+
+    Xi = np.zeros((N, 2))
+    idx = 0
+    for iy in range(p+1):
+        for ix in range(p-iy+1):  # loop over nodes
+            Xi[idx] = np.array([xi[ix], eta[iy]])
+            idx += 1
+    return Xi
+
+
 if __name__ == "__main__":
     b = getTriLagrangeBasis2D(p=2)
+    print(getTriLagrangePts2D(p=2))
 
     # print(b([1, 0]))
     # print(b([0, 0]))
