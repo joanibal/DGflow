@@ -78,7 +78,7 @@ class DGSolver(object):
         self.nQuadPts1D = len(self.quadWts1D)
 
         # these are 2d points of a tri element in reference space
-        self.quadPts2D, self.quadWts2D = quadrules.getQuadPtsTri(order+1)
+        self.quadPts2D, self.quadWts2D = quadrules.getQuadPtsTri(order+2)
         self.nQuadPts2D = len(self.quadWts2D)
 
         # nQuadPts2D, quadPts2D, quadWts2D = quadrules.quad2d(nQuadPts1D, 0, 1)
@@ -194,7 +194,7 @@ class DGSolver(object):
 
         self.U[:, :] = Ub
         self.Ub = Ub
-        print(self.U)
+        # print(self.U)
 
     # def initFromSolve(self, coarseMesh):
 
@@ -209,8 +209,10 @@ class DGSolver(object):
         self.S = np.zeros(self.mesh.nElem)
 
         self.getInteralResiduals()
-        # print R
+        # print('internal', self.R)
+        # quit()
         self.getEdgeResiduals()
+        # print('sum', self.R)
 
         # return R
         # calculate analytical flux
@@ -296,6 +298,8 @@ class DGSolver(object):
                     self.R[idx_elem_left, idx_basis] += Rtot_left
                     self.S[idx_elem_left] += Stot_left
 
+                    print('wall', bc,  Rtot_left)
+
             elif any(bc == self.inlet):
                 for idx_basis in range(self.nBasis):
                     Rtot_left = np.zeros(self.nStates)
@@ -314,6 +318,7 @@ class DGSolver(object):
 
                     self.R[idx_elem_left, idx_basis] += Rtot_left
                     self.S[idx_elem_left] += Stot_left
+                    # print('inlet', Rtot_left)
 
             elif any(bc == self.outlet):
                 for idx_basis in range(self.nBasis):
@@ -332,6 +337,7 @@ class DGSolver(object):
 
                     self.R[idx_elem_left, idx_basis] += Rtot_left
                     self.S[idx_elem_left] += Stot_left
+                    # print('outlet', Rtot_left)
 
             else:
                 print(bc)
@@ -366,6 +372,8 @@ class DGSolver(object):
         # print self.U
 
         self.getResidual()
+        print(self.R)
+        quit()
         dt = 2*self.mesh.area*cfl/self.S
         # print dt
         for idx_elem in range(self.mesh.nElem):
@@ -381,7 +389,7 @@ class DGSolver(object):
 
         # print self.U
 
-    def solve(self, maxIter=20, tol=1e-7, cfl=0.9, freeStreamTest=False):
+    def solve(self, maxIter=100, tol=1e-7, cfl=0.9, freeStreamTest=False):
 
         # solver.cfl = cfl
         # solver_constants.mode = freeStreamTest
@@ -538,7 +546,7 @@ class DGSolver(object):
             fid.write('TITLE = "bump"\n')
             fid.write(
                 'Variables="X", "Y", "U", "V", "rho", "rhoRes", "num"\n')
-            fid.write('ZONE my zone\n')
+            fid.write('ZONE\n')
             fid.write('T="Zone Title"\n')
             fid.write('DataPacking=Block\n')
             fid.write('ZoneType=FETRIANGLE\n')
@@ -576,12 +584,13 @@ class DGSolver(object):
 
 if __name__ == '__main__':
     # bump = Mesh('meshes/bump0.gri')
-    bump = Mesh('meshes/test0_1.gri')
+    # bump = Mesh('meshes/test0_2.gri')
+    bump = Mesh('meshes/bump0_kfid.gri')
 
     DGSolver = DGSolver(bump, order=1)
     # DGprint(FVSolver.getResidual())
     DGSolver.solve()
-    DGSolver.writeSolution_lite('test_2')
+    # DGSolver.writeSolution_lite('test_2')
     # DGFVSolver.writeSolution('lv0')
     # DGFVSolver.
     # DGFVSolver.solve()

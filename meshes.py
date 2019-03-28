@@ -36,7 +36,8 @@ class Mesh(object):
         self.nDim = 2
 
         if gridFile:
-            self.node2Pos, self.elem2Node, self.BCs, self.elemOrder = self.readGrid(gridFile)
+            self.node2Pos, self.elem2Node, self.BCs, self.linElem, self.curvElem, self.curvOrder = self.readGrid(
+                gridFile)
         elif (elem2Node.any() and node2Pos.any() and BCs):
             self.elem2Node = elem2Node
             self.node2Pos = node2Pos
@@ -68,6 +69,7 @@ class Mesh(object):
     def readGrid(self, fileName):
         with open(fileName, 'r') as fid:
 
+            curvOrder = 1
             if fileName[-3:] == 'gri':
                 nNodes, nElem, nDim = [int(s) for s in fid.readline().split()]
 
@@ -90,7 +92,8 @@ class Mesh(object):
                 # read elements
                 Ne0 = 0
                 E = []
-                elemOrder = {}
+                linElem = np.array([], dtype=int)
+                curvElem = np.array([], dtype=int)
                 while (Ne0 < nElem):
                     s = fid.readline().split()
                     ne = int(s[0])
@@ -99,10 +102,12 @@ class Mesh(object):
                         [[int(s) - 1 for s in fid.readline().split()] for n in range(ne)])
                     E = Ei if (Ne0 == 0) else np.concatenate((E, Ei), axis=0)
 
-                    if pe in elemOrder:
-                        elemOrder[pe] = np.append(elemOrder[pe], np.arange(Ne0, Ne0 + ne))
+                    if pe > 1:
+                        curvOrder = pe
+                        curvElem = np.append(curvElem, np.arange(Ne0, Ne0 + ne, dtype=int))
                     else:
-                        elemOrder[pe] = np.arange(Ne0, Ne0 + ne)
+                        linElem = np.append(linElem, np.arange(Ne0, Ne0 + ne, dtype=int))
+
                     Ne0 += ne
 
             elif fileName[-3:] == 'su2':
@@ -136,7 +141,7 @@ class Mesh(object):
             else:
                 raise Exception
 
-        return V, E, BCs, elemOrder
+        return V, E, BCs, linElem, curvElem, curvOrder
 
     def writeGrid(self, fileName, gridFormat='gri'):
 
@@ -220,7 +225,7 @@ class Mesh(object):
                     bcLength.append(edgeLength)
 
                     # add to the list of wall edges if it is indeed a wall edge\
-                    if 'wall' in self.BCs.keys()[bcGroupIdx]:
+                    if 'curv' in self.BCs.keys()[bcGroupIdx]:
                         wallEdges.append(len(B2E) - 1)
                     continue  # if the nodes are on a BC don't add it to the list
 
@@ -459,19 +464,19 @@ class Mesh(object):
 
     def getLinearJacobian(self):
 
-        n1OrderElem = len(self.elemOrder[1])
-        detJ = np.zeros(n1OrderElem)
-        invJ = np.zeros((n1OrderElem, self.nDim, self.nDim))
+        # n1OrderElem = len(self.elemOrder[1])
+        detJ = np.zeros(self.nElem)
+        invJ = np.zeros((self.nElem, self.nDim, self.nDim))
 
-        if 1 in self.elemOrder:
-            for elem in self.elemOrder[1]:
-                nodes = self.node2Pos[self.elem2Node[elem]]
+        # if 1 in self.elemOrder:
+        for elem in range(self.nElem):
+            nodes = self.node2Pos[self.elem2Node[elem]]
 
-                # from eqn 4.3.8 in notes
-                J = np.array([[nodes[1][0] - nodes[0][0], nodes[2][0] - nodes[0][0]],
-                              [nodes[1][1] - nodes[0][1], nodes[2][1] - nodes[0][1]]])
-                detJ[elem] = np.linalg.det(J)
-                invJ[elem] = np.linalg.inv(J)
+            # from eqn 4.3.8 in notes
+            J = np.array([[nodes[1][0] - nodes[0][0], nodes[2][0] - nodes[0][0]],
+                          [nodes[1][1] - nodes[0][1], nodes[2][1] - nodes[0][1]]])
+            detJ[elem] = np.linalg.det(J)
+            invJ[elem] = np.linalg.inv(J)
 
         return invJ, detJ
 
@@ -479,124 +484,140 @@ class Mesh(object):
         """
         finds the location of the high order nodes on the mesh
         """
-        highOrder = self.elemOrder.keys()
-        if 1 in highOrder:
-            highOrder.remove(1)
+        # highOrder = self.elemOrder.keys()
+        # if 1 in highOrder:
+        #     highOrder.remove(1)
 
-        self.elem2HighOrderNode = {}
+        # for q in highOrder:
+        nHiOrderElem = len(self.curvElem)
+        q = self.curvOrder
 
-        for q in highOrder:
-            nHiOrderElem = len(self.elemOrder[q])
-            # xi = np.linspace(0, 1, q+1)
-            # eta = xi
-            # N = (q+1)*(q+2)//2
+        # xi = np.linspace(0, 1, q+1)
 
-            # Xi = np.zeros((N, 2))
-            # idx = 0
-            # for iy in range(q+1):
-            #     for ix in range(q-iy+1):  # loop over nodes
-            #         Xi[idx] = np.array([xi[ix], eta[iy]])
-            #         idx += 1
-            Xi = quadrules.getTriLagrangePts2D(q)
-            N = len(Xi)
+        # eta = xi
+        # N = (q+1)*(q+2)//2
 
-            self.elem2HighOrderNode[q] = np.zeros((nHiOrderElem, N, 2))
+        # Xi = np.zeros((N, 2))
+        # idx = 0
+        # for iy in range(q+1):
+        #     for ix in range(q-iy+1):  # loop over nodes
+        #         Xi[idx] = np.array([xi[ix], eta[iy]])
+        #         idx += 1
+        Xi = quadrules.getTriLagrangePts2D(q)
+        N = len(Xi)
 
-            self.elemIdx2HiOrderElemIdx = np.ones(self.nElem, dtype=int)*10**10
+        self.curvNodes = np.zeros((nHiOrderElem, N, 2))
 
-            for idx_hiOrderElem, elem in enumerate(self.elemOrder[q]):
-                nodes = self.node2Pos[self.elem2Node[elem]]
+        self.elemIdx2HiOrderElemIdx = np.ones(self.nElem, dtype=int)*10**10
 
-                J = np.array([[nodes[1][0] - nodes[0][0], nodes[2][0] - nodes[0][0]],
-                              [nodes[1][1] - nodes[0][1], nodes[2][1] - nodes[0][1]]])
+        for idx_elem, elem in enumerate(self.curvElem):
+            nodes = self.node2Pos[self.elem2Node[elem]]
 
-                # map the nodes to physcial space using a linear jacobain
-                self.elem2HighOrderNode[q][idx_hiOrderElem] = nodes[0] + np.matmul(J, Xi.T).T
-                self.elemIdx2HiOrderElemIdx[elem] = idx_hiOrderElem
+            J = np.array([[nodes[1][0] - nodes[0][0], nodes[2][0] - nodes[0][0]],
+                          [nodes[1][1] - nodes[0][1], nodes[2][1] - nodes[0][1]]])
 
-            # loop over wall nodes and snap nodes on wall face to edge and move nodes inside up slightly
-            for edge in self.bcEdge2Elem[self.wallEdges]:
-                idx_hiElem = self.elemIdx2HiOrderElemIdx[edge[0]]
-                idx_face = edge[1]
-                # depending on which face is on the wall different nodes need to be adjusted
-                nodes2Move = []
-                if idx_face == 0:
-                    nodeIdxs = [2*q]
-                    for ii in range(q-1, 1, -1):
-                        nodeIdxs.append(nodeIdxs[-1] + ii)
+            # map the nodes to physcial space using a linear jacobain
+            self.curvNodes[idx_elem] = nodes[0] + np.matmul(J, Xi.T).T
+            self.elemIdx2HiOrderElemIdx[elem] = idx_elem
 
-                    nodes2Move.append(nodeIdxs)
-                    for ii in range(q - 2, 0, -1):
-                        nodes2Move.append([x - 1 for x in nodes2Move[-1][:-1]])
+        # print(self.curvNodes[0])
 
-                elif idx_face == 1:
-                    nodeIdxs = [1 + q]
-                    for ii in range(q-1, 1, -1):
-                        nodeIdxs.append(nodeIdxs[-1] + ii + 1)
+        # loop over wall nodes and snap nodes on wall face to edge and move nodes inside up slightly
+        for edge in self.bcEdge2Elem[self.wallEdges]:
+            elem = edge[0]
+            idx_edge = edge[1]
+            idx_hiElem = self.elemIdx2HiOrderElemIdx[elem]
+            idx_face = edge[1]
 
-                    nodes2Move.append(nodeIdxs)
-                    for ii in range(q - 2, 0, -1):
-                        nodes2Move.append([x + 1 for x in nodes2Move[-1][:-1]])
+            plt.plot(self.curvNodes[idx_hiElem][:, 0],
+                     self.curvNodes[idx_hiElem][:, 1], '-o')
 
-                # different
-                elif idx_face == 2:
-                    nodes2Move.append(range(1, q))
-                    for ii in range(q+1, 3, -1):
-                        nodes2Move.append([x + ii for x in nodes2Move[-1][:-1]])
+            # depending on which face is on the wall different nodes need to be adjusted
+            nodes2Move = []
+            if idx_face == 0:
+                nodeIdxs = [2*q]
+                for ii in range(q-1, 1, -1):
+                    nodeIdxs.append(nodeIdxs[-1] + ii)
 
-                else:
-                    raise NotImplementedError
+                nodes2Move.append(nodeIdxs)
+                for ii in range(q - 2, 0, -1):
+                    nodes2Move.append([x - 1 for x in nodes2Move[-1][:-1]])
 
-                # snap wall elements y position
-                for idx_row, fact in enumerate(np.linspace(1, 0, q)[:-1]):
-                    for idx_node in nodes2Move[idx_row]:
-                        print(idx_row, idx_node, fact)
-                        self.elem2HighOrderNode[q][idx_hiElem][idx_node][1] +=\
-                            fact*self.wallGeomFunc(
-                                self.elem2HighOrderNode[q][idx_hiElem][idx_node][0])
+            elif idx_face == 1:
+                nodeIdxs = [1 + q]
+                for ii in range(q-1, 1, -1):
+                    nodeIdxs.append(nodeIdxs[-1] + ii + 1)
 
-                # print(self.elem2HighOrderNode[q][idx_hiElem][nodes2Move[0]])
-                # print(self.elem2HighOrderNode[q][idx_hiElem][nodes2Move[1]])
-                # print(self.elem2HighOrderNode[q][idx_hiElem][nodes2Move[2]])
+                nodes2Move.append(nodeIdxs)
+                for ii in range(q - 2, 0, -1):
+                    nodes2Move.append([x + 1 for x in nodes2Move[-1][:-1]])
 
-                # print(idx_face, nodes2Move)
-                # plt.plot(self.elem2HighOrderNode[q][idx_hiElem][:, 0],
-                #          self.elem2HighOrderNode[q][idx_hiElem][:, 1], 'o')
-                # plt.xlabel('X')
-                # plt.ylabel('Y')
-                # plt.legend(['Unperturbed', 'Perturbed'])
-                # plt.show()
+            # different
+            elif idx_face == 2:
+                nodes2Move.append(range(1, q))
+                for ii in range(q+1, 3, -1):
+                    nodes2Move.append([x + ii for x in nodes2Move[-1][:-1]])
 
-    def getCurvedJacobian(self, q, elem, quadPts, basis):
+            else:
+                raise NotImplementedError
+
+            # snap wall elements y position
+            for idx_row, fact in enumerate(np.linspace(1, 0, q)[:-1]):
+                for idx_node in nodes2Move[idx_row]:
+
+                    # determine the diplacement from a linear
+                    nodes = self.elem2Node[elem]
+                    # import ipdb
+                    # ipdb.set_trace()
+                    localNodeVec = np.delete(np.arange(3), idx_edge)
+                    edgeNodes = self.node2Pos[nodes[localNodeVec]]
+
+                    x = self.curvNodes[idx_hiElem][idx_node][0]
+                    y = (x - edgeNodes[0, 0])*(edgeNodes[1, 1] - edgeNodes[0, 1]) / \
+                        (edgeNodes[1, 0] - edgeNodes[0, 0]) + edgeNodes[0, 1]
+                    y_snap = self.wallGeomFunc(x)
+                    # print(idx_row, idx_node, fact)
+                    self.curvNodes[idx_hiElem][idx_node][1] += fact*(y_snap - y)
+
+            # plt.plot(self.curvNodes[idx_hiElem][:, 0],
+            #          self.curvNodes[idx_hiElem][:, 1], '-o')
+            # plt.show()
+
+        # print(self.curvNodes[0])
+        # print(idx_face, nodes2Move)
+        # plt.xlabel('X')
+        # plt.ylabel('Y')
+        # plt.legend(['Unperturbed', 'Perturbed'])
+        # quit()
+        # print(self.curvNodes[q][idx_hiElem][nodes2Move[1]])
+        # print(self.curvNodes[q][idx_hiElem][nodes2Move[2]])
+
+    def getCurvedJacobian(self, elem, quadPts, basis):
         """
-        returns the value of the jacobian at each of the 1D and 2D quadrature points
+        returns the value of the jacobian at each of the quadrature points evaluated using the supplied basis functions
         """
-        # # q = 2
         # nBasis, basis = quadrules.getTriLagrangeBasis2D(q)
-        _, quadWts = quadrules.getQuadPts1D(q+1, 0, 1)
+        # _, quadWts = quadrules.getQuadPts1D(q+1, 0, 1)
 
         # quadPts2D = quadrules.getQuadPts2D(q+1)
         # for pt in quadPts2D:
-        elem = 0
 
-        # import ipdb
-        # ipdb.set_trace()
         J = np.zeros((len(quadPts), 2, 2))
         invJ = np.zeros((len(quadPts), 2, 2))
         detJ = np.zeros(len(quadPts))
         # tang_vec = np.zeros((len(quadPts), 2))
-        n = np.zeros((len(quadPts), 2))
+        # n = np.zeros((len(quadPts), 2))
         for idx, pt in enumerate(quadPts):
             _, gphi = basis(pt)
-            J[idx] = np.matmul(self.elem2HighOrderNode[q][elem].T, gphi[0])
+            J[idx] = np.matmul(self.curvNodes[elem].T, gphi[0])
             invJ[idx] = np.linalg.inv(J[idx])
             detJ[idx] = np.linalg.det(J[idx])
             # print(J[idx])
-            tang_vec = -J[idx][:, 0] + J[idx][:, 1]
+            # tang_vec = -J[idx][:, 0] + J[idx][:, 1]
             # print(J[idx], pt)
 
             # # the result of crossing the trangent vector with k hat
-            n[idx] = np.array([tang_vec[0], -tang_vec[1]])
+            # n[idx] = np.array([tang_vec[0], -tang_vec[1]])
             # # quit()
             # # print
 
@@ -605,8 +626,48 @@ class Mesh(object):
 
         # print(arclength, np.sum(quadWts))
 
-        return J, invJ, detJ, n
+        return J, invJ, detJ
         # for elem in range(self.elemOrder[q]):
+
+    def getEdgeJacobain(self, quadPts1D, basis):
+        nElem = len(self.curvElem)
+        nQuadPts1D = len(quadPts1D)
+
+        detJEdge = np.zeros((nElem,  3, nQuadPts1D))
+        normalEdge = np.zeros((nElem,  3, nQuadPts1D, 2))
+
+        for idx_elem, elem in enumerate(self.curvElem):
+            for edge in range(3):
+                pts = np.zeros((nQuadPts1D, 2))
+                if edge == 0:
+                    pts[:, 0] = 1 - quadPts1D
+                    pts[:, 1] = quadPts1D
+                    dXi_dX = np.array([-1, 1])
+
+                elif edge == 1:
+                    pts[:, 0] = 0
+                    pts[:, 1] = 1 - quadPts1D
+                    dXi_dX = np.array([0, -1])
+
+                elif edge == 2:
+                    pts[:, 0] = quadPts1D
+                    pts[:, 1] = 0
+                    dXi_dX = np.array([1, 0])
+
+                J = self.getCurvedJacobian(idx_elem, pts, basis)[0]
+
+                for q in range(len(J)):
+                    # import ipdb
+                    # ipdb.set_trace()
+                    tang_vec = J[q][:, 0]*dXi_dX[0] + J[q][:, 1]*dXi_dX[1]
+                    normalEdge[idx_elem][edge][q] = np.array([tang_vec[1], -tang_vec[0]])
+
+                    detJEdge[idx_elem][edge][q] = np.linalg.norm(
+                        normalEdge[idx_elem][edge][q])
+                    normalEdge[idx_elem][edge][q] /= detJEdge[idx_elem][edge][q]
+
+                # print(edge, self.normalEdge[elem][edge])
+        return detJEdge, normalEdge
 
 
         # def plotBCs(self):
@@ -616,7 +677,7 @@ if __name__ == '__main__':
     def flatWall(x):
         return -x*(x-1)*0.2
 
-    test = Mesh('meshes/test0_21.gri', wallGeomFunc=flatWall)
+    test = Mesh('meshes/test0_2.gri', wallGeomFunc=flatWall)
     # test = Mesh('meshes/bump0_kfid.gri')
 
     # test.refine()
