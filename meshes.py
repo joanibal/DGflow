@@ -555,8 +555,8 @@ class Mesh(object):
             idx_hiElem = self.elemIdx2HiOrderElemIdx[elem]
             idx_face = edge[1]
 
-            plt.plot(self.curvNodes[idx_hiElem][:, 0],
-                     self.curvNodes[idx_hiElem][:, 1], '-o')
+            # plt.plot(self.curvNodes[idx_hiElem][:, 0],
+            #          self.curvNodes[idx_hiElem][:, 1], '-o')
 
             # depending on which face is on the wall different nodes need to be adjusted
             nodes2Move = []

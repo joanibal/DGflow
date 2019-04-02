@@ -82,7 +82,7 @@ class DGSolver(object):
         self.dof = self.mesh.nElem*self.nSolBasis
 
         # basis fucntion to represent the curved geometric elements
-        _, self.curvBasis = quadrules.getTriLagrangeBasis2D(self.mesh.curvOrder)
+        self.nCurvBasis, self.curvBasis = quadrules.getTriLagrangeBasis2D(self.mesh.curvOrder)
 
         self.initFreestream()
 
@@ -105,14 +105,10 @@ class DGSolver(object):
         self.linQuadPts2D, self.linQuadWts2D = quadrules.getQuadPtsTri(order+2)
         self.nLinQuadPts2D = len(self.linQuadWts2D)
 
-        self.linPhi, self.linGPhi = self.getPhiMat(self.linQuadPts2D)
-        self.lLinEdgePhi, self.rLinEdgePhi = self.getEdgePhi(self.linQuadPts1D)
+        self.linPhi, self.linGPhi = self.getPhiMat(self.linQuadPts2D , self.solBasis, self.nSolBasis)
+        self.lLinEdgePhi, self.rLinEdgePhi = self.getEdgePhi(self.linQuadPts1D, self.solBasis, self.nSolBasis)
 
         # get jacobian
-
-        # ** note this is done for **all** elements because the edge residuals for the stright edges of the
-        # curved element can be calculated using a linear jacobian
-        #       - this isn't true and should be fixed
         self.linInvJ, self.linDetJ = self.mesh.getLinearJacobian()
 
         # calculate inverse mass matrix for each element
@@ -131,8 +127,8 @@ class DGSolver(object):
         self.curvQuadPts2D, self.curvQuadWts2D = quadrules.getQuadPtsTri(self.mesh.curvOrder+2)
         self.nCurvQuadPts2D = len(self.curvQuadWts2D)
 
-        self.curvPhi, self.curvGPhi = self.getPhiMat(self.curvQuadPts2D)
-        self.lCurvEdgePhi, self.rCurvEdgePhi = self.getEdgePhi(self.curvQuadPts1D)
+        self.curvPhi, self.curvGPhi = self.getPhiMat(self.curvQuadPts2D, self.solBasis, self.nSolBasis)
+        self.lCurvEdgePhi, self.rCurvEdgePhi = self.getEdgePhi(self.curvQuadPts1D, self.solBasis, self.nSolBasis)
 
         # get jacobian
         self.mesh.nCurvElem = len(self.mesh.curvElem)
@@ -269,7 +265,7 @@ class DGSolver(object):
                     dg_solver.basis.lcurvedgephi[idx_sol, q,  idx_edge] = self.lCurvEdgePhi[idx_edge, q, idx_sol]
                     dg_solver.basis.rcurvedgephi[idx_sol, q, idx_edge] = self.rCurvEdgePhi[idx_edge, q, idx_sol]
 
-    def getPhiMat(self, quadPts2D):
+    def getPhiMat(self, quadPts2D, basis, nBasis):
         nQuadPts2D = len(quadPts2D)
 
         Phi = np.zeros((nQuadPts2D, self.nSolBasis))
@@ -284,12 +280,12 @@ class DGSolver(object):
         return Phi, dPhi_dXi
 
     # precompute the values of the basis functions are each edge of the reference element
-    def getEdgePhi(self, quadPts1D):
+    def getEdgePhi(self, quadPts1D, basis, nBasis):
         # 3 because there are three faces of a triangle
         nQuadPts1D = len(quadPts1D)
 
-        leftEdgePhi = np.zeros((3, nQuadPts1D, self.nSolBasis))
-        rightEdgePhi = np.zeros((3, nQuadPts1D, self.nSolBasis))
+        leftEdgePhi = np.zeros((3, nQuadPts1D, nBasis))
+        rightEdgePhi = np.zeros((3, nQuadPts1D, nBasis))
         for edge in range(3):
             # map 2D fave coordinates to
             pts = np.zeros((nQuadPts1D, 2))
@@ -306,11 +302,11 @@ class DGSolver(object):
 
             for idx, pt in enumerate(pts):
                 # the basis function value at each of the quad points
-                leftEdgePhi[edge, idx], _ = self.solBasis(pt)
+                leftEdgePhi[edge, idx], _ = basis(pt)
 
             for idx, pt in enumerate(pts[::-1]):
-                # the self.solBasis function value at each of the quad points
-                rightEdgePhi[edge, idx], _ = self.solBasis(pt)
+                # the basis function value at each of the quad points
+                rightEdgePhi[edge, idx], _ = basis(pt)
 
         return leftEdgePhi, rightEdgePhi
 
@@ -701,81 +697,64 @@ class DGSolver(object):
 
             areaTot += self.mesh.area[idx_elem]
 
-        Es = np.sqrt(Es/areaTot)
-        print(Es)
-        import ipdb
-        ipdb.set_trace()
-        # quit()
-        # for idx_curvElem, idx_elem in enumerate(self.mesh.curvElem):
+        self.Es = np.sqrt(Es/areaTot)
 
-        # # self.Es = solver_post.getfeildvaribles()
 
-        # # get the edges of the bump
-        # # idxs_bumpEdge = np.where(self.mesh.bcEdge2Elem[:, 2] == 1)[0]
+        # --------------------- get the force acting on the wall ----------
+        # get the value of the **geometry** basis fucntions at each of the
+        # 1d quad points
+        geomEdgePhi, _ = self.getEdgePhi(self.curvQuadPts1D, basis=self.curvBasis, nBasis=self.nCurvBasis)
+        # for idx, pt in enumerate(Xi):
+        #     # the basis function value at each of the quad points
+        #     geomPhi[idx], _ = self.curvBasis(pt)
 
-        # # initalize the force vector
-        # self.F = np.zeros(2)
 
-        # self.cp_wall = np.zeros(idxs_bumpEdge.shape[0])
-        # self.x_wall = np.zeros(idxs_bumpEdge.shape[0])
 
-        # # for each cell along the wall
-        # for idx, idx_edge in enumerate(idxs_bumpEdge):
-        #     length = self.mesh.bcLength[idx_edge]
-        #     normal = self.mesh.bcNormal[idx_edge]
+        self.F = np.zeros(2)
+        self.cp_wall = np.zeros(len(self.mesh.wallEdges)*self.nCurvQuadPts1D)
+        self.x_wall = np.zeros(len(self.mesh.wallEdges)*self.nCurvQuadPts1D)
 
-        #     nodes = self.mesh.elem2Node[self.mesh.bcEdge2Elem[idx_edge, 0]]
-        #     nodes = np.delete(nodes, [self.mesh.bcEdge2Elem[idx_edge, 1]])
+        idx = 0
+        for bcEdge in self.mesh.bcEdge2Elem[self.mesh.wallEdges]:
 
-        #     self.x_wall[idx] = np.mean(self.mesh.node2Pos[nodes], axis=0)[0]
+            idx_elem = bcEdge[0]
+            idx_curvElem = self.mesh.elem2CurvElem[idx_elem]
+            idx_edge_loc = bcEdge[1]
+            Uq = np.matmul(self.lCurvEdgePhi[idx_edge_loc], self.U[idx_elem])
 
-        #     self.cp_wall[idx] = (self.p_wall[idx] - self.P_inf)
-        #     self.F += -1*(self.P_inf - self.p_wall[idx])*normal*length
+            nodesPos = self.mesh.curvNodes[idx_curvElem]
+            Xq = np.matmul(geomEdgePhi[idx_edge_loc], nodesPos )
+                    # else:
+                    # Upts = np.matmul(solPhi, self.U[elem])
+                    # Xpts = np.matmul(geomPhi, nodesPos)
 
-        # # get state at each edge quad pts on the wall edge of the cell
 
-        # # map the quad pts in reffernce space to global (for plotting x vs Cp)
+            # import ipdb; ipdb.set_trace()
 
-        # # for second order use du_dx to find the value at the edge
-        # if self.order == 1 or not self.recon_p:
-        #     # if True:
-        #     bump_elem = self.mesh.bcEdge2Elem[idxs_bumpEdge, 0]
-        #     # bump_local_edges = self.mesh.bcEdge2Elem[idxs_bumpEdge, 1]
-        #     u_wall = self.U[bump_elem, 1:3]
-        #     r_wall = self.U[bump_elem, 0]
-        #     # import ipdb
-        #     # ipdb.set_trace()
+            for qPt in range(self.nCurvQuadPts1D):
+                P = (self.gamma - 1.)*(Uq[qPt, 3] - 0.5*(np.linalg.norm(Uq[qPt, 1:3])**2)/Uq[qPt, 0])
+                delP = self.P_inf - P
 
-        #     unL = np.sum(u_wall*self.mesh.bcNormal[idxs_bumpEdge], axis=1)/r_wall
-        #     qL = np.linalg.norm(u_wall, axis=1)/r_wall
-        #     utL = np.sqrt(qL**2 - unL**2)
+                self.F += -1*delP*self.curvNormal[idx_curvElem, idx_edge_loc, qPt] * \
+                    self.curvDetJEdge[idx_curvElem, idx_edge_loc, qPt] * self.curvQuadWts1D[qPt]
 
-        #     self.p_wall = (self.gamma-1)*(self.U[bump_elem, 3] - 0.5*r_wall*utL**2)
+                # print('outlet', Rtot_left)
 
-        #     # self.p_wall = solver_post.p[self.mesh.bcEdge2Elem[idxs_bumpEdge, 0]]
-        # else:
-        #     # self.p_wall = solver_post.getwallpressure(idxs_bumpEdge+1)
-        # for idx, idx_edge in enumerate(idxs_bumpEdge):
-        #     length = self.mesh.bcLength[idx_edge]
-        #     normal = self.mesh.bcNormal[idx_edge]
+                self.x_wall[idx] = Xq[qPt, 0]
 
-        #     nodes = self.mesh.elem2Node[self.mesh.bcEdge2Elem[idx_edge, 0]]
-        #     nodes = np.delete(nodes, [self.mesh.bcEdge2Elem[idx_edge, 1]])
+                self.cp_wall[idx] = delP
+                idx += 1
 
-        #     self.x_wall[idx] = np.mean(self.mesh.node2Pos[nodes], axis=0)[0]
 
-        #     self.cp_wall[idx] = (self.p_wall[idx] - self.P_inf)
-        #     self.F += -1*(self.P_inf - self.p_wall[idx])*normal*length
+        h = 0.0625
+        self.cp_wall /= (self.gamma/2*self.P_inf*self.mach_Inf**2)
+        self.cd, self.cl = self.F/(self.gamma/2*self.P_inf*self.mach_Inf**2*h)
 
-        # h = 0.0625
-        # self.cp_wall /= (self.gamma/2*self.P_inf*self.machInf**2)
-        # self.cd, self.cl = self.F/(self.gamma/2*self.P_inf*self.machInf**2*h)
-
-        # print('cd', self.cd, 'cl', self.cl, 'Es', self.Es)
-        # idxs_sorted = np.argsort(self.x_wall)
-        # self.x_wall = self.x_wall[idxs_sorted]
+        print('cd', self.cd, 'cl', self.cl, 'Es', self.Es)
+        idxs_sorted = np.argsort(self.x_wall)
+        self.x_wall = self.x_wall[idxs_sorted]
         # self.p_wall = self.p_wall[idxs_sorted]
-        # self.cp_wall = self.cp_wall[idxs_sorted]
+        self.cp_wall = self.cp_wall[idxs_sorted]
 
     def plotResiduals(self):
         plt.semilogy(range(1, self.nIter+1), self.Rmax, label='order: ' + str(self.order))
@@ -929,12 +908,12 @@ if __name__ == '__main__':
     # bump = Mesh('meshes/threeElem.gri', wallGeomFunc=flatWall, check=True)
     # bump = Mesh('meshes/test0_2.gri', wallGeomFunc=flatWall, check=True)
     # bump = Mesh('meshes/refElem.gri', wallGeomFunc=flatWall)
-    bump.refine()
+    # bump.refine()
     bump.refine()
     # bump.refine()
 
     # test = Mesh('meshes/test0_2.gri', wallGeomFunc=flatWall)
-    DGSolver = DGSolver(bump, order=1)
+    DGSolver = DGSolver(bump, order=2)
 
     # DGprint(FVSolver.getResidual())
     # DGSolver.solve(maxIter=10, cfl=0.5)
