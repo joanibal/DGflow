@@ -3,11 +3,11 @@
 1. 0.
 0. 1.
 3
-1 2 Wall-bottom
+1 2 Wall-curv
 1 2
 1 2 Outlet-Right
 2 3
 1 2 Inlet-Left
 3 1
-1 1 TriLagrange
+1 2 TriLagrange
 1 2 3

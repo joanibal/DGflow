@@ -36,7 +36,7 @@ class Mesh(object):
         self.nDim = 2
 
         if gridFile:
-            self.node2Pos, self.elem2Node, self.BCs, self.linElem, self.curvElem, self.curvOrder = self.readGrid(
+            self.node2Pos, self.elem2Node, self.BCs = self.readGrid(
                 gridFile)
         elif (elem2Node.any() and node2Pos.any() and BCs):
             self.elem2Node = elem2Node
@@ -59,6 +59,10 @@ class Mesh(object):
 
         self.nInEdge = len(self.inEdge2Elem)
         self.nBCEdge = len(self.bcEdge2Elem)
+
+        self.curvElem, self.linElem, self.elem2CurvElem = self.getElementOrder()
+        self.nLinElem = len(self.linElem)
+        self.nCurvElem = len(self.curvElem)
 
         if check:
             self.checkMesh()
@@ -102,11 +106,11 @@ class Mesh(object):
                         [[int(s) - 1 for s in fid.readline().split()] for n in range(ne)])
                     E = Ei if (Ne0 == 0) else np.concatenate((E, Ei), axis=0)
 
-                    if pe > 1:
-                        curvOrder = pe
-                        curvElem = np.append(curvElem, np.arange(Ne0, Ne0 + ne, dtype=int))
-                    else:
-                        linElem = np.append(linElem, np.arange(Ne0, Ne0 + ne, dtype=int))
+                    # if pe > 1:
+                    #     curvOrder = pe
+                    #     curvElem = np.append(curvElem, np.arange(Ne0, Ne0 + ne, dtype=int))
+                    # else:
+                    #     linElem = np.append(linElem, np.arange(Ne0, Ne0 + ne, dtype=int))
 
                     Ne0 += ne
 
@@ -140,8 +144,7 @@ class Mesh(object):
                     BCs[BCname] = b
             else:
                 raise Exception
-
-        return V, E, BCs, linElem, curvElem, curvOrder
+        return V, E, BCs
 
     def writeGrid(self, fileName, gridFormat='gri'):
 
@@ -170,6 +173,24 @@ class Mesh(object):
                     fid.write(str(self.elem2Node[jj]+1)[1:-1]+'\n')
 
 # preprocessing
+    def getElementOrder(self):
+        """
+            determines if an element should be linear or curved depending on if
+            is touching a wall deseignated as curved
+        """
+        # get the element that has a curvWallEdge
+        curvElem = self.bcEdge2Elem[self.wallEdges][:, 0]
+
+        # all the reamaining elements are linear
+        linElem = np.delete(range(self.nElem), curvElem)
+
+        # create an inversee mapping of elem idx to curElem idx
+        elem2CurvElem = np.ones(self.nElem, dtype=int)*-1
+        for idx, elem in enumerate(curvElem):
+            elem2CurvElem[elem] = idx
+
+        return curvElem, linElem, elem2CurvElem
+
     def preprocess(self):
         node2Edge = {}
         I2E = []
@@ -298,6 +319,7 @@ class Mesh(object):
             self.bcNormal, axis=1), np.ones(len(self.bcNormal)))
 
         elemRes = np.zeros((self.elem2Node.shape[0], self.nDim))
+
         for edgeIdx, IE in enumerate(self.inEdge2Elem):
             length = self.inLength[edgeIdx]
             # import ipdb
@@ -363,7 +385,7 @@ class Mesh(object):
         print(newNodesPos)
         print(elem2Node)
 
-    def refine(self, geomFunc=None):
+    def refine(self):
         """
             splits every element into 4 elements
         """
@@ -376,6 +398,7 @@ class Mesh(object):
 
         newNodes = np.empty(3, dtype=int)
         node2Pos = self.node2Pos
+
         for idx_elem in range(self.nElem):
             nodes = self.elem2Node[idx_elem]
             # nodes = set(nodes)
@@ -408,9 +431,9 @@ class Mesh(object):
                     bcGroupName = BCs.keys()[isBCNode.index(True)]
                     BCs[bcGroupName] = np.append(BCs[bcGroupName], nodeIdx)
 
-                    if geomFunc and 'wall' in bcGroupName:
+                    if self.wallGeomFunc and 'curv' in bcGroupName:
                         # use the analytic function for the wall geometry to snap the point to the wall
-                        node2Pos[nodeIdx][1] = geomFunc(node2Pos[nodeIdx][0])
+                        node2Pos[nodeIdx][1] = self.wallGeomFunc(node2Pos[nodeIdx][0])
 
                 newNodes[idx_edge] = newEdgeNodes[1]
                 # add node numbers to the list of bou
@@ -425,7 +448,8 @@ class Mesh(object):
             # add another node made from all the new nodes
             elem2Node[idx_elem*4+3] = newNodes
 
-        self.__init__(elem2Node=elem2Node, node2Pos=node2Pos, BCs=BCs)
+        self.__init__(elem2Node=elem2Node, node2Pos=node2Pos, BCs=BCs,
+                      wallGeomFunc=self.wallGeomFunc, check=True)
 
     def plot(self, fileName=None, geomOrder=1):
         plt.figure(figsize=(12, 4))
@@ -462,21 +486,37 @@ class Mesh(object):
             nodes = np.vstack((nodes, nodes[0]))
             plt.plot(nodes[:, 0], nodes[:, 1], 'k')
 
-    def getLinearJacobian(self):
+    def plotElemOrder(self):
 
-        # n1OrderElem = len(self.elemOrder[1])
-        detJ = np.zeros(self.nElem)
-        invJ = np.zeros((self.nElem, self.nDim, self.nDim))
+        for idx_elem in self.linElem:
+
+            nodes = self.node2Pos[self.elem2Node[idx_elem]]
+            nodes = np.vstack((nodes, nodes[0]))
+            plt.plot(nodes[:, 0], nodes[:, 1], 'k')
+
+        for idx_elem in self.curvElem:
+
+            nodes = self.node2Pos[self.elem2Node[idx_elem]]
+            nodes = np.vstack((nodes, nodes[0]))
+            plt.plot(nodes[:, 0], nodes[:, 1], 'b')
+
+        plt.show()
+
+    def getLinearJacobian(self):
+        nElem = len(self.linElem)
+
+        detJ = np.zeros(nElem)
+        invJ = np.zeros((nElem, self.nDim, self.nDim))
 
         # if 1 in self.elemOrder:
-        for elem in range(self.nElem):
-            nodes = self.node2Pos[self.elem2Node[elem]]
+        for idx_linElem, idx_elem in enumerate(self.linElem):
+            nodes = self.node2Pos[self.elem2Node[idx_elem]]
 
             # from eqn 4.3.8 in notes
             J = np.array([[nodes[1][0] - nodes[0][0], nodes[2][0] - nodes[0][0]],
                           [nodes[1][1] - nodes[0][1], nodes[2][1] - nodes[0][1]]])
-            detJ[elem] = np.linalg.det(J)
-            invJ[elem] = np.linalg.inv(J)
+            detJ[idx_linElem] = np.linalg.det(J)
+            invJ[idx_linElem] = np.linalg.inv(J)
 
         return invJ, detJ
 
@@ -484,25 +524,11 @@ class Mesh(object):
         """
         finds the location of the high order nodes on the mesh
         """
-        # highOrder = self.elemOrder.keys()
-        # if 1 in highOrder:
-        #     highOrder.remove(1)
 
         # for q in highOrder:
         nHiOrderElem = len(self.curvElem)
         q = self.curvOrder
 
-        # xi = np.linspace(0, 1, q+1)
-
-        # eta = xi
-        # N = (q+1)*(q+2)//2
-
-        # Xi = np.zeros((N, 2))
-        # idx = 0
-        # for iy in range(q+1):
-        #     for ix in range(q-iy+1):  # loop over nodes
-        #         Xi[idx] = np.array([xi[ix], eta[iy]])
-        #         idx += 1
         Xi = quadrules.getTriLagrangePts2D(q)
         N = len(Xi)
 
@@ -669,7 +695,6 @@ class Mesh(object):
                 # print(edge, self.normalEdge[elem][edge])
         return detJEdge, normalEdge
 
-
         # def plotBCs(self):
         #     for BCname in self.BCs.keys():
 if __name__ == '__main__':
@@ -677,13 +702,14 @@ if __name__ == '__main__':
     def flatWall(x):
         return -x*(x-1)*0.2
 
-    test = Mesh('meshes/test0_2.gri', wallGeomFunc=flatWall)
-    # test = Mesh('meshes/bump0_kfid.gri')
-
-    # test.refine()
-    test.getHighOrderNodes()
-    test.refineElement(0)
-    pt = np.array([0, 5])
+    # test = Mesh('meshes/test0_2.gri', wallGeomFunc=flatWall)
+    test = Mesh('meshes/bump0_kfid.gri')
+    test.refine()
+    test.refine()
+    test.plotElemOrder()
+    # test.getHighOrderNodes()
+    # test.refineElement(0)
+    # pt = np.array([0, 5])
 
     # test.getCurvedJacobian(2, pt)
     # test.getLinearJacobian()

@@ -23,19 +23,20 @@ import dg_solver
 #         self.CFDSolver.solve(maxIter=1000, freeStreamTest=True)
 #         self.assertAlmostEqual(self.CFDSolver.Rmax[0], 0.0)
 
-# class TestResiduals(unittest.TestCase):
 
-#     def setUp(self):
-#         test_mesh = Mesh('meshes/test.gri')
-#         self.CFDSolver = DGSolver(test_mesh)
+class TestResiduals(unittest.TestCase):
 
-#     def test_freestream(self):
-#         self.CFDSolver.solve(maxIter=1, freeStreamTest=True)
-#         self.assertAlmostEqual(self.CFDSolver.Rmax[0], 0.0)
+    def setUp(self):
+        test_mesh = Mesh('meshes/test.gri')
+        self.CFDSolver = DGSolver(test_mesh)
 
-#     def test_freestream_preservation(self):
-#         self.CFDSolver.solve(maxIter=1000, freeStreamTest=True)
-#         self.assertAlmostEqual(self.CFDSolver.Rmax[0], 0.0)
+    def test_InternalResiduals(self):
+        self.CFDSolver.solve(maxIter=1, freeStreamTest=True)
+        self.assertAlmostEqual(self.CFDSolver.Rmax[0], 0.0)
+
+    def test_freestream_preservation(self):
+        self.CFDSolver.solve(maxIter=1000, freeStreamTest=True)
+        self.assertAlmostEqual(self.CFDSolver.Rmax[0], 0.0)
 
 
 class TestFluxes(unittest.TestCase):
@@ -73,13 +74,13 @@ class TestFluxes(unittest.TestCase):
     def test_supersonic(self):
         uL = np.array([1.63, 2.53, 6.53, 25.88])
 
+        # uncomment to know what mach number the state is at
         # gam = 1.4
         # p = (gam - 1)*(uL[3] - 0.5*np.linalg.norm(uL[1:3])**2/uL[1])
         # c = np.sqrt(gam*p/uL[1])
         # M = np.linalg.norm(uL[1:3])/uL[0]/c
         # print('M', M)
 
-        # U = np.vstack((uL, self.uR)).T
         F, _ = dg_solver.fluxes.roeflux(uL, self.uR, self.n)
 
         F_analytic = dg_solver.fluxes.analyticflux(uL)
@@ -105,7 +106,6 @@ class TestFluxes(unittest.TestCase):
 
     def test_inflow(self):
 
-        # flux, s = dg_solver.fluxes.inflowflux(Tt, Pt, alpha, self.uL, self.n)
         flux, s = dg_solver.fluxes.inflowflux(self.uL, self.n)
 
         # old values
@@ -117,8 +117,6 @@ class TestFluxes(unittest.TestCase):
 
     def test_outflow(self):
 
-        pb = 0.66
-        # flux, s = dg_solver.fluxes.outflowflux(pb, self.uL, self.n)
         flux, s = dg_solver.fluxes.outflowflux(self.uL, self.n)
 
         # old values
@@ -127,64 +125,40 @@ class TestFluxes(unittest.TestCase):
 
         np.testing.assert_array_almost_equal(flux, flux_correct, decimal=8)
         np.testing.assert_array_almost_equal(s, s_correct, decimal=8)
-
-        # class TestCurvedElement(unittest.TestCase):
-
-        #     def setUp(self):
-
-        #         def flatWall(x):
-        #             return 0
-
-        #         def curvWall(x):
-        #             return -x*(x-1)*0.2
-
-        #         # just a mesh of the reference element
-        #         self.refElem = Mesh('meshes/refElem.gri', wallGeomFunc=flatWall)
-
-        #         # both element types
-        #         self.curvMesh = Mesh('meshes/twoElem.gri', wallGeomFunc=curvWall)
-        #         # _, self.curvBasis = quadrules.getTriLagrangeBasis2D(q)
-
-        #     def test_linear_jacobian(self):
-        #         invJ, detJ = self.refElem.getLinearJacobian()
-        #         np.testing.assert_array_equal(invJ[0], np.eye(2))
-        #         assert detJ[0], 1
-
-        # def test_curved_jacobian(self):
-        #     # get the quadrature points for the test
-
-        #     # order of the geom
-        #     q = 3
-        #     quadPts2D, quadWts2D = quadrules.getQuadPtsTri(q+1)
-
-        #     self.curvMesh.getCurvedJacobian(0, quadPts2D, curvBasis)
-
-        # def test_round_TE(self):
-        #     self.foil.roundTE(k=4)
-        #     refTE = np.array([0.990393, 0.0013401])
-        #     newTE = self.foil.TE
-        #     np.testing.assert_array_almost_equal(refTE, newTE, decimal=6)
-
-        # def test_blunt_TE(self):
-        #     self.foil.makeBluntTE()
-        #     refTE = np.array([0.97065494, 0.00352594])
-        #     newTE = self.foil.TE
-        #     np.testing.assert_array_almost_equal(refTE, newTE, decimal=8)
-
-        # class TestCurvedElement(unittest.TestCase):
-
-        #     def setUp(self):
-
-        #         def flatWall(x):
-        #             return 0
+#
 
 
-        #         def curvWall(x):
-        #             return -x*(x-1)*0.2
-        #         # just a mesh of the reference element
-        #         self.refElem = Mesh('meshes/refElem.gri', wallGeomFunc=flatWall)
-        #         # both element types
-        #         self.curvMesh = Mesh('meshes/twoElem.gri', wallGeomFunc=curvWall)
-        #         # _, self.curvBasis = quadrules.getTriLagrangeBasis2D(q)
+class TestCurvedElement(unittest.TestCase):
+
+    def setUp(self):
+
+        def flatWall(x):
+            return 0
+
+        def curvWall(x):
+            return -x*(x-1)*0.2
+
+        # just a mesh of the reference element
+        self.refElem = Mesh('meshes/refElem.gri', wallGeomFunc=flatWall)
+
+        # both element types
+        self.curvMesh = Mesh('meshes/twoElem.gri', wallGeomFunc=curvWall)
+        # _, self.curvBasis = quadrules.getTriLagrangeBasis2D(q)
+
+    def test_linear_jacobian(self):
+        invJ, detJ = self.refElem.getLinearJacobian()
+        np.testing.assert_array_equal(invJ[0], np.eye(2))
+        assert detJ[0], 1
+
+    # def test_curved_jacobian(self):
+    #     # get the quadrature points for the test
+
+    #     # order of the geom
+    #     q = 3
+    #     quadPts2D, quadWts2D = quadrules.getQuadPtsTri(q+1)
+
+    #     self.curvMesh.getCurvedJacobian(0, quadPts2D, curvBasis)
+
+
 if __name__ == '__main__':
     unittest.main()

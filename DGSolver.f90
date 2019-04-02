@@ -1,4 +1,5 @@
 ! f2py -c --f90flags='-O3 -ffast-math -funroll-loops' -m dg_solver DGSolver.f90
+! f2py -c --f90flags='-g -fimplicit-none -fbacktrace -ffree-line-length-0 -fcheck=all -ffpe-trap=zero,overflow,underflow -finit-real=nan' -m dg_solver DGSolver.f90
 
 module types
   ! integer, parameter:: dp=kind(0.d0)
@@ -8,52 +9,131 @@ module types
 end module types
 
 module mesh
-    use types
-    implicit none
+  use types
+  implicit none
 
-    integer:: nElem, nInEdge, nBCEdge
+  integer:: nElem, nInEdge, nBCEdge
+  integer:: nLinElem, nCurvElem
 
-    ! these arrays are set on the python level
+  ! BC integers used to compare with the BC value in bcElem2Node
+  integer:: wall, curvWall, inlet,  outlet
 
-    real(dp), allocatable,  dimension(:,:):: inNormal
-        !  2, nInEdge
-        ! the normal for each interior normals
+  real(dp), allocatable, dimension(:,:,:) :: invM
 
-    real(dp), allocatable, dimension(:,:):: bcNormal
-        !  2, nBCEdge
-        ! the normal for each boundary normals
+  ! list of the global elements that are linear or curved
+  integer, allocatable, dimension(:) :: linElem, curvElem
 
-    real(dp), allocatable, dimension(:):: inLength
-         ! nInEdge
-         ! the length of each interior face
-
-    real(dp), allocatable, dimension(:):: bcLength
-        ! nBCEdge
-        ! the length of each boundary face
-
-    real(dp), allocatable, dimension(:):: area
-        ! nElem
-        ! the area of each element
-
-    real(dp), allocatable, dimension(:,:,:):: elem2dX
-        !  3, nElem
-        ! disctance to cell center for  each element face
-
-    integer, allocatable, dimension(:,:):: inEdge2Elem
-         ! 4, nInEdge
-        ! mapping from interior faces to  elements
-
-    integer, allocatable, dimension(:,:):: bcEdge2Elem
-         !  3, nBCEdge
-        ! mapping from boundary faces to  elements
+  ! mapping from gobal elements
+  integer, allocatable, dimension(:) :: elem2CurvElem
 
 
+  ! these arrays are set on the python level
+  real(dp), allocatable,  dimension(:,:):: inNormal
+      !  2, nInEdge
+      ! the normal for each interior normals
+
+  real(dp), allocatable, dimension(:,:):: bcNormal
+      !  2, nBCEdge
+      ! the normal for each boundary normals
+
+  real(dp), allocatable, dimension(:):: inLength
+       ! nInEdge
+       ! the length of each interior face
+
+  real(dp), allocatable, dimension(:):: bcLength
+      ! nBCEdge
+      ! the length of each boundary face
+
+  real(dp), allocatable, dimension(:):: area
+      ! nElem
+      ! the area of each element
 
 
-    ! BC integers used to compare with the BC value in bcElem2Node
-    integer, allocatable, dimension(:):: wall, inlet, outlet
+  integer, allocatable, dimension(:,:):: inEdge2Elem
+       ! 4, nInEdge
+      ! mapping from interior faces to  elements
+
+  integer, allocatable, dimension(:,:):: bcEdge2Elem
+       !  3, nBCEdge
+      ! mapping from boundary faces to  elements
+
+
+  real(dp), allocatable, dimension(:)::  linDetJ
+  ! nLinElem
+  ! the jacobian of each element
+
+
+  real(dp), allocatable, dimension(:, :,:):: linInvJ
+  ! 2, 2, self.mesh.nLinElem,
+
+
+
+  real(dp), allocatable, dimension(:, :,:, :):: curvInvJ
+  ! 2, 2, self.nCurvQuadPts2D, self.mesh.nCurvElem,
+
+  real(dp), allocatable, dimension(:, :):: curvDetJ
+  ! nQuadPts2D, nCurvElem
+
+  real(dp), allocatable, dimension(:, :,:, :):: curvNormal
+  ! 2, nQuadPts1D, 3, Elem,
+
+  real(dp), allocatable, dimension(:,:, :):: curvDetJEdge
+  ! nQuadPts1D, 3, Elem,
+
+
 
 end module mesh
+
+
+
+module quadrature
+  use types
+  implicit none
+
+  integer:: nLinQuadPts2D,  nLinQuadPts1D
+  integer:: nCurvQuadPts2D, nCurvQuadPts1D
+  ! these arrays are set on the python level
+
+  real(dp), allocatable,  dimension(:):: linQuadWts2D, linQuadWts1D
+  real(dp), allocatable,  dimension(:):: curvQuadWts2D, curvQuadWts1D
+
+end module quadrature
+
+module basis
+  use types
+  implicit none
+
+  ! these arrays are set on the python level
+  integer:: nSolBasis
+
+  real(dp), allocatable,  dimension(:,:):: linPhi
+  ! nSolBasis, nLinQuadPts2D
+
+  real(dp), allocatable,  dimension(:,:,:):: linGPhi
+  ! nSolBasis, nLinQuadPts2D, nDim
+
+  real(dp), allocatable,  dimension(:,:, :)::lLinEdgePhi, rLinEdgePhi
+  ! nSolBasis, nLinQuadPts1D
+
+
+
+  real(dp), allocatable,  dimension(:,:):: curvPhi
+  ! nSolBasis, nCurvQuadPts2D
+
+  real(dp), allocatable,  dimension(:,:,:):: curvGPhi
+  ! nSolBasis, nCurvQuadPts2D, nDim
+
+  real(dp), allocatable,  dimension(:,:, :)::lCurvEdgePhi, rCurvEdgePhi
+  ! nSolBasis, nCurvQuadPts1D
+
+end module basis
+
+
+
+
+
+
+
 
 
 module constants
@@ -61,15 +141,12 @@ module constants
 
   implicit none
   real(dp), parameter:: gam=1.4_dp
-  ! real(dp), parameter:: eps=0.1_dp
   real(dp), parameter:: R_gasconst=1.0_dp
   real(dp):: tempTot_inf, pTot_inf, p_inf, alpha
   real(dp), dimension(4):: Ub
   real(dp), parameter::gm1 = 1.4_dp - 1.0_dp
 
   integer:: mode=0
-  integer:: recon_bc_flux=1
-  integer:: recon_p=1
 
 end module  constants
 
@@ -392,7 +469,7 @@ module fluxes
       use constants
 
       real(dp), dimension(4), intent(in) :: U
-      real(dp), dimension(2,4), intent(out) :: flux
+      real(dp), dimension(4,2), intent(out) :: flux
 
 
       real(dp) :: P, H
@@ -412,8 +489,8 @@ module fluxes
               U(3)*U(3)/U(1) + P,&
               U(3)*H/)
 
-      flux(1, :) = Fx
-      flux(2, :) = Fy
+      flux(:, 1) = Fx
+      flux(:, 2) = Fy
 
    end ! analyticFlux
 
@@ -425,7 +502,7 @@ module fluxes
   !  end function
 
     function getRoeAvg(V, Rho) result(avg)
-      real(dp), dimension(2):: Rho
+      real(dp), dimension(:):: Rho
       real(dp), dimension(:):: V
       real(dp):: avg
 
@@ -436,361 +513,443 @@ module fluxes
 end module fluxes
 
 
-! module residuals
-!       use types
-!       use constants, only: mode
-!       implicit none
+module residuals
+      use types
+      use constants, only: mode
+      implicit none
 
-!     contains
-!     subroutine getResiduals(U, res, S)
-!       ! calculates the residuals for the new states
-!       use constants, only: tempTot_inf, pTot_inf ,p_inf, alpha, Ub
-!       use mesh, only: wall, inlet, outlet,  nInEdge, nBCEdge, inLength, inNormal, inEdge2Elem, bcLength, bcNormal, bcEdge2Elem
-!       use fluxes, only: roeFlux, wallFlux, inflowFlux, outflowFlux
+    contains
 
-!       real(dp), dimension(:, :), intent(in):: U
 
-!       real(dp), dimension(:, :), intent(out):: res
-!       real(dp), dimension(:), intent(out):: S
-!       integer:: idx_edge, idx_left, idx_right
-!       real(dp), dimension(4):: flux
-!       real(dp), dimension(4, 2):: U_face
-!       real(dp):: sface
+    subroutine getResiduals(U, res, s)
+      ! calculates the internal residuals for the new states
 
+      ! use mesh, only: nLinElem, linElem, &
+      !                 nCurvElem, curvElem, &
+      !                 linInvJ, linDetJ, &
+      !                 curvInvJ, curvDetJ
 
-!       res = 0.0_dp
-!       S = 0.0_dp
+      ! use basis, only: linPhi, linGPhi,   lLinEdgePhi, rLinEdgePhi, &
+      !                  curvPhi, curvGPhi, lCurvEdgePhi, rCurvEdgePhi, &
+      !                  nSolBasis
 
-!       do idx_edge = 1, nInEdge
-!          ! get the elements connected to the edge
-!          idx_left = inEdge2Elem(1,idx_edge)
-!          idx_right = inEdge2Elem(3,idx_edge)
+      ! use fluxes, only: analyticFlux
 
-!          U_face(:,1) = U(:, idx_left)
-!          U_face(:,2) = U(:, idx_right)
+      ! use quadrature, only: nLinQuadPts2D, linQuadWts2D, &
+      !                       nCurvQuadPts2D, curvQuadWts2D
 
-!          ! get the states
-!          call roeflux(U_face, inNormal(:, idx_edge), flux, sface)
+      real(dp), dimension(:, :, :), intent(in):: U
 
-!          ! add residuals to running total
-!          res(:, idx_left) = res(:, idx_left) + flux*inLength(idx_edge)
-!          res(:, idx_right) = res(:, idx_right) - flux*inLength(idx_edge)
-!          S(idx_left) = S(idx_left) + sface*inLength(idx_edge)
-!          S(idx_right) = S(idx_right) + sface*inLength(idx_edge)
-!       end do
+      real(dp), dimension(:,:, :), intent(inout):: Res
+      real(dp), dimension(:), intent(inout):: S
 
+      Res = 0
+      S = 0
 
+      call getInternalResiduals(U, res)
+      call getEdgeResiduals(U, res, S)
 
-!     ! BCs
-!     do idx_edge = 1,nBCEdge
-!       idx_left = bcEdge2Elem(1,idx_edge)
-!       ! write(*,*) idx_left
+      end subroutine ! getResiduals
 
-!       if (mode==0) then
-!         ! write(*,*) idx_left
 
-!         if (any(bcEdge2Elem(3,idx_edge)== wall)) then
-!           ! write(*,*) 'wall'
-!           call wallFlux( U(:, idx_left), bcNormal(:, idx_edge), flux, sface)
+    subroutine getInternalResiduals(U, res)
+      ! calculates the internal residuals for the new states
 
-!         else if (any(bcEdge2Elem(3,idx_edge)== inlet)) then
-!           ! write(*,*) 'inlet'
+      use mesh, only: nLinElem, linElem, &
+                      nCurvElem, curvElem, &
+                      linInvJ, linDetJ, &
+                      curvInvJ, curvDetJ
 
-!           call inflowFlux(temptot_inf, ptot_inf, alpha, U(:, idx_left), bcNormal(:, idx_edge), flux, sface)
+      use basis, only: linPhi, linGPhi,   &
+                       curvPhi, curvGPhi, &
+                       nSolBasis
 
-!         else if (any(bcEdge2Elem(3,idx_edge)== outlet)) then
-!           ! write(*,*) 'outlet', p_inf
+      use fluxes, only: analyticFlux
 
-!           call outflowFlux(p_inf, U(:, idx_left), bcNormal(:, idx_edge), flux, sface)
+      use quadrature, only: nLinQuadPts2D, linQuadWts2D, &
+                            nCurvQuadPts2D, curvQuadWts2D
 
-!         end if
+      real(dp), dimension(:, :, :), intent(in):: U
 
-!       else
-!         ! write(*,*) 'Freestream'
+      real(dp), dimension(:,:, :), intent(inout):: Res
 
-!         ! freesteam bcs everywhere (flowthough test)
-!         U_face(:,1) = U(:, idx_left)
-!         U_face(:,2) = Ub
-!         call roeFlux(U_face, bcNormal(:, idx_edge), flux, sface)
+      real(dp), dimension(4,2):: flux
 
-!       end if
+      real(dp), dimension(4, nLinQuadPts2D):: linUq
+      real(dp), dimension(4, nCurvQuadPts2D):: curvUq
 
-!       res(:, idx_left) = res(:, idx_left) + flux*bcLength(idx_edge)
-!       S(idx_left) = S(idx_left) + sface*bcLength(idx_edge)
+      ! indexing
+      integer:: idx_elem, idx_linElem, idx_curvElem, idx_basis, qPt
 
-!     end do
 
 
 
-!    end subroutine !getResiduals
+      do idx_linElem = 1, nLinElem
 
-!   subroutine getGradU(U, dU_dX)
+          ! get the index of the element in the over all mesh
+          idx_elem = linElem(idx_linElem)
 
-!     use mesh, only:   nInEdge, nBCEdge, inLength, inNormal, inEdge2Elem, bcLength, bcNormal, bcEdge2Elem, area
 
+          linUq = matmul( U(:, :, idx_elem), linPhi)
+          do qPt = 1,nLinQuadPts2D
 
-!     real(dp), dimension(:, :), intent(in):: U
-!     real(dp), dimension(:, :, :), intent(out):: dU_dX
+            call analyticFlux(linUq(:, qPt), flux)
+            do idx_basis = 1,nSolBasis
+              Res(:, idx_basis, idx_elem) = Res(:, idx_basis, idx_elem) &
+                        - linQuadWts2D(qPt) * linDetJ(idx_linElem)*(&
+                        (linGPhi(1, idx_basis, qPt)*linInvJ(1,1,idx_linElem) + &
+                         linInvJ(2,1,idx_linElem)*linGPhi(2, idx_basis, qPt))* flux(:,1) + &
+                        (linGPhi(1, idx_basis, qPt)*linInvJ(1,2,idx_linElem) + &
+                         linInvJ(2,2,idx_linElem)*linGPhi(2, idx_basis, qPt))* flux(:,2))
 
-!     real(dp), dimension(4):: U_bar
+            end do
+          end do
+          do idx_basis = 1,nSolBasis
 
+              ! write(*,*) idx_basis, Res(:, idx_basis, idx_elem)
+          end do
 
-!     integer:: idx_edge, idx_left, idx_right, idx_xy, idx_elem, i
+      end do
 
+        do idx_curvElem = 1, nCurvElem
 
-!     dU_dX = 0.0_dp
+          ! get the index of the element in the over all mesh
+          idx_elem = curvElem(idx_curvElem)
 
+          curvUq = matmul( U(:, :, idx_elem), curvPhi)
+          do qPt = 1,nCurvQuadPts2D
 
-!     ! write(*,*) ''
-!     ! write(*,*) 'U '
-!     ! do, i=1,nElem
-!     !    write(*,*) U(:,i)
-!     ! enddo
+            call analyticFlux(curvUq(:, qPt), flux)
+            do idx_basis = 1,nSolBasis
+              Res(:, idx_basis, idx_elem) = Res(:, idx_basis, idx_elem) &
+                        - curvQuadWts2D(qPt) * curvDetJ(qpt,idx_curvElem)*(&
+                        (curvGPhi(1, idx_basis, qPt)*curvInvJ(1,1,qPt, idx_curvElem) + &
+                         curvInvJ(2,1,qPt,idx_curvElem)*curvGPhi(2, idx_basis, qPt))* flux(:,1) + &
+                        (curvGPhi(1, idx_basis, qPt)*curvInvJ(1,2,qPt, idx_curvElem) + &
+                         curvInvJ(2,2,qPt,idx_curvElem)*curvGPhi(2, idx_basis, qPt))* flux(:,2))
 
-!     do idx_edge = 1, nInEdge
-!       ! get the elements connected to the edge
-!       idx_left = inEdge2Elem(1,idx_edge)
-!       idx_right = inEdge2Elem(3,idx_edge)
+                end do
+            end do
+        end do
 
-!       U_bar = (U(:, idx_left) + U(:, idx_right))/2
 
-!       ! w
-!       do idx_xy = 1,2
+        ! do idx_linElem = 1,nLinElem
+        !   idx_elem = linElem(idx_linElem)
+        !   ! do qPt = 1, nLinQuadPts2D
 
-!         ! WRITE(*,*) dU_dX(idx_xy,:,idx_left)
-!         ! WRITE(*,*) dU_dX(idx_xy,:,idx_left) + U_bar*inLength(idx_edge)*inNormal(idx_xy, idx_edge)
-!         dU_dX(idx_xy,:,idx_left) = dU_dX(idx_xy,:,idx_left) + U_bar*inLength(idx_edge)*inNormal(idx_xy, idx_edge)/area(idx_left)
-!         dU_dX(idx_xy,:,idx_right) = dU_dX(idx_xy,:,idx_right) - U_bar*inLength(idx_edge)*inNormal(idx_xy, idx_edge)/area(idx_right)
-!       end do
-!     end do
+        !     do idx_basis = 1,nSolBasis
+        !       write(*,*)  Res(:, idx_basis, idx_elem)
+        !     end do
+        !   ! end do
+        !   ! write(*,*)
+        ! end do
 
-!     ! loop over bc faces
+        ! do idx_curvElem = 1,nCurvElem
+        !   idx_elem = curvElem(idx_curvElem)
+        !   ! do qPt = 1, nCurvQuadPts2D
 
-!     do idx_edge = 1, nBCEdge
-!       ! get the elements connected to the edge
-!       idx_elem =  bcEdge2Elem(1,idx_edge)
-!       ! idx_right = inEdge2Elem(3,idx_edge)
+        !     do idx_basis = 1,nSolBasis
+        !       write(*,*)  Res(:, idx_basis, idx_elem)
+        !     end do
+        !   ! end do
+        !   ! write(*,*)
+        ! end do
 
-!       U_bar = U(:, idx_elem)
 
-!       do idx_xy = 1,2
-!         dU_dX(idx_xy,:,idx_elem) = dU_dX(idx_xy,:,idx_elem) + U_bar*bcLength(idx_edge)*bcNormal(idx_xy, idx_edge)/area(idx_elem)
-!       end do
-!     end do
 
 
-!     ! do idx_elem = 1,nElem
-!     !   dU_dX(:, :, idx_elem) = dU_dX(:, :, idx_elem)/area(idx_elem)
-!     !   ! write(*,*) 'dU_dX(:, :, idx_elem)', dU_dX(:, :, idx_elem), area(idx_elem)
-!     ! end do
+   end subroutine !getInternalResiduals
 
 
+  subroutine getEdgeResiduals(U, res, S)
 
-!     ! write(*,*) ''
-!     ! write(*,*) 'U gradu'
-!     ! do, i=1,nElem
-!     !    write(*,*) dU_dX(:,:,i)
-!     ! enddo
+      ! use constants, only: Ub
+    use mesh, only: nInEdge, inEdge2Elem, inLength, inNormal, &
+                    nBCEdge, bcEdge2Elem, bcLength, bcNormal, elem2CurvElem,  &
+                    curvDetJEdge, curvNormal, &
+                    curvWall, wall, inlet, outlet
 
 
-!   end subroutine ! getGradU
+    use basis, only: lLinEdgePhi, rLinEdgePhi, &
+                     lCurvEdgePhi, rCurvEdgePhi, &
+                     nSolBasis
 
+    use fluxes, only: roeFlux, wallFlux, inflowFlux, outflowFlux
 
-!   subroutine getResiduals_2ndOrder(U, dU_dX, res, S)
-!     ! calculates the residuals for the new states
-!     use mesh, only: wall, inlet, outlet, nInEdge, nBCEdge, inLength, inNormal, inEdge2Elem, &
-!     bcLength, bcNormal, bcEdge2Elem, elem2dX
-!     use fluxes
-!     use constants, only: tempTot_inf, pTot_inf ,p_inf, alpha, Ub, recon_bc_flux
+    use quadrature, only: nLinQuadPts1D, linQuadWts1D, &
+          nCurvQuadPts1D, curvQuadWts1D
 
-!     implicit none
-!     real(dp), dimension(:, :), intent(in):: U
-!     real(dp), dimension(:, :, :), intent(inout):: dU_dX
+    real(dp), dimension(:, :, :), intent(in):: U
 
-!     real(dp), dimension(:, :), intent(out):: res
-!     real(dp), dimension(:), intent(out):: S
+    real(dp), dimension(:,:, :), intent(inout):: Res
+    real(dp), dimension(:), intent(inout):: S
 
-!     integer:: idx_state, idx_edge, idx_left, idx_right
-!     real(dp), dimension(4):: flux, U_edge, dU_left, dU_right
-!     real(dp), dimension(4, 2):: U_face
-!     real(dp), dimension(2):: dX_right, dX_left
-!     real(dp):: sface
+    real(dp), dimension(4):: flux
 
+    real(dp), dimension(4, nLinQuadPts1D):: lU, rU
+    real(dp), dimension(4, nCurvQuadPts1D):: curvLU
 
-!     res = 0.0_dp
-!     S = 0.0_dp
+    ! indexing
+    integer:: idx_elem, idx_linElem, idx_curvElem, idx_basis, qPt
+    integer:: idx_edge, idx_elem_left, idx_edge_left, idx_elem_right, idx_edge_right, idx_edge_loc, bc
 
+    real(dp):: fact, s_face !
 
-!     call getGradU(U, dU_dX)
+    do idx_edge = 1,nInEdge
+       ! get the elements connected to the edge
+        idx_elem_left = inEdge2Elem(1,idx_edge)
+        idx_edge_left = inEdge2Elem(2,idx_edge)
 
+        idx_elem_right = inEdge2Elem(3,idx_edge)
+        idx_edge_right = inEdge2Elem(4,idx_edge)
 
-!     do idx_edge = 1, nInEdge
-!        ! get the elements connected to the edge
-!        idx_left = inEdge2Elem(1,idx_edge)
-!        idx_right = inEdge2Elem(3,idx_edge)
+        lU = matmul( U(:, :, idx_elem_left), lLinEdgePhi(:, :, idx_edge_left))
+        rU = matmul( U(:, :, idx_elem_right), rLinEdgePhi(:, :, idx_edge_right))
 
-!       !  write(*,*) 'idx_left', idx_left, 'idx_right', idx_right
+        ! write(*,*) 'lU', shape(lU), lU
+        ! write(*,*) 'rU', shape(rU), rU
+        ! write(*,*) 'inNormal', inNormal(:,idx_edge)
+        do qPt = 1,nlinQuadPts1D
 
-!        dX_left = elem2dX(:,inEdge2Elem(2,idx_edge), idx_left)
-!        dX_right  = elem2dX(:,inEdge2Elem(4,idx_edge), idx_right)
+          fact = inLength(idx_edge) * linQuadWts1D(qPt)
+          call roeFlux(lU(:, qPt), rU(:, qPt), inNormal(:, idx_edge), flux, s_face)
+          S(idx_elem_left) = S(idx_elem_left) + s_face*fact
+          S(idx_elem_right) = S(idx_elem_right) + s_face*fact
+          ! write(*,*) 'flux', flux(:)
+          do idx_basis = 1,nSolBasis
+            res(:, idx_basis, idx_elem_left) = res(:, idx_basis, idx_elem_left) + &
+                                                  flux*lLinEdgePhi(idx_basis, qPt, idx_edge_left)*fact
+            res(:, idx_basis, idx_elem_right) = res(:, idx_basis, idx_elem_right) - &
+                                                  flux*rLinEdgePhi(idx_basis, qPt, idx_edge_right)*fact
 
-!        do idx_state = 1,4
-!         dU_left(idx_state) = dot_product(dX_left, dU_dX(:, idx_state ,idx_left) )
-!         dU_right(idx_state) = dot_product(dX_right, dU_dX(:, idx_state ,idx_right) )
-!        end do
 
+          end do
+        end do
 
-!        U_face(:,1) = U(:, idx_left) + dU_left
-!        U_face(:,2) = U(:, idx_right) + dU_right
+    end do
 
-!       !  write(*,*) 'UL', U_face(:,1), dU_left, dX_left
-!       !  write(*,*) 'UR', U_face(:,2), dU_right, dX_right
-!        ! get the states
-!        call roeFlux(U_face, inNormal(:, idx_edge), flux, sface)
-!       !  write(*,*) 'flux', flux
 
-!        ! add residuals to running total
 
-!        res(:, idx_left) = res(:, idx_left) + flux*inLength(idx_edge)
-!        res(:, idx_right) = res(:, idx_right) - flux*inLength(idx_edge)
 
-!        S(idx_left) = S(idx_left) + sface*inLength(idx_edge)
-!        S(idx_right) = S(idx_right) + sface*inLength(idx_edge)
+    ! ========================= Apply Boundary Conditions ====================
 
-!     end do
+    do idx_edge = 1,nBCEdge
+        idx_elem = bcEdge2Elem(1,idx_edge)
+        idx_edge_loc = bcEdge2Elem(2,idx_edge)
+        bc = bcEdge2Elem(3,idx_edge)
 
+        ! write(*,*) idx_elem, idx_edge,  bc
+        if (bc == curvWall) then
+          ! write(*,*) shape(U(:, :, idx_elem_left)), shape(lCurvEdgePhi(:, :, idx_edge_loc)),  bc, bc
+          curvLU = matmul( U(:, :, idx_elem), lCurvEdgePhi(:, :, idx_edge_loc))
+          idx_curvElem = elem2CurvElem(idx_elem)
 
-!     ! Free stream BCs
-!     do idx_edge = 1,nBCEdge
-!       idx_left = bcEdge2Elem(1,idx_edge)
+        else
+          ! write(*,*) shape(U(:, :, idx_elem)), shape(lLinEdgePhi(:, :, idx_edge_loc)), bc
 
-!       if (mode==0) then
+          lU = matmul( U(:, :, idx_elem), lLinEdgePhi(:, :, idx_edge_loc))
+        end if
+        ! write(*,*) 'no error'
+        if (bc == curvWall) then
+          ! uL = np.matmul(edgePhi, U[idx_elem])
 
-!         U_edge = U(:, idx_left)
-!         if (recon_bc_flux==1) then
-!           dX_left = elem2dX(:,bcEdge2Elem(2,idx_edge), idx_left)
+          do qPt = 1,nCurvQuadPts1D
 
-!           do idx_state = 1,4
-!             dU_left(idx_state) = dot_product(dX_left, dU_dX(:, idx_state ,idx_left) )
-!           end do
-!           U_edge = U_edge + dU_left
-!           ! write(*,*) dU_left
-!         end if
+            fact = curvDetJEdge(qPt, idx_edge_loc, idx_curvElem)*curvQuadWts1D(qPt)
 
-!         if (any(bcEdge2Elem(3,idx_edge)== wall)) then
-!           call WallFlux( U_edge, bcNormal(:, idx_edge), flux, sface)
+            call WallFlux( curvLU(:, qPt), curvNormal(:, qPt, idx_edge_loc, idx_curvElem), flux, s_face)
+            S(idx_elem) = S(idx_elem) + s_face*fact
+            do idx_basis = 1, nSolBasis
 
-!         else if (any(bcEdge2Elem(3,idx_edge)== inlet)) then
-!           call InflowFlux(temptot_inf, ptot_inf, alpha, U_edge, bcNormal(:, idx_edge), flux, sface)
+              res(:, idx_basis, idx_elem) = res(:, idx_basis, idx_elem) + &
+                        flux*lCurvEdgePhi(idx_basis, qPt, idx_edge_loc)*fact
+              ! write(*,*) idx_basis, qPt, flux*lLinEdgePhi(idx_basis, qPt, idx_edge_loc)*fact
 
-!         else if (any(bcEdge2Elem(3,idx_edge)== outlet)) then
-!           call OutflowFlux(p_inf, U_edge, bcNormal(:, idx_edge), flux, sface)
+            end do
+          end do
+        else if (bc == Wall) then
+          do qPt = 1,nLinQuadPts1D
 
-!         end if
+            fact = bcLength(idx_edge)*linQuadWts1D(qPt)
 
-!       else
-!         ! freesteam
+            call WallFlux( lU(:, qPt), bcNormal(:,idx_edge), flux, s_face)
+            S(idx_elem) = S(idx_elem) + s_face*fact
 
-!         U_face(:,1) = U(:, idx_left)
-!         U_face(:,2) = Ub
-!         call roeFlux(U_face, bcNormal(:, idx_edge), flux, sface)
 
-!       end if
+            do idx_basis = 1, nSolBasis
 
-!       res(:, idx_left) = res(:, idx_left) + flux*bcLength(idx_edge)
-!       S(idx_left) = S(idx_left) + sface*bcLength(idx_edge)
+              res(:, idx_basis, idx_elem) = res(:, idx_basis, idx_elem) + &
+                        flux*lLinEdgePhi(idx_basis, qPt, idx_edge_loc)*fact
+            end do
+          end do
+        else if (bc == inlet) then
+          do qPt = 1,nLinQuadPts1D
 
-!     end do
+            fact = bcLength(idx_edge)*linQuadWts1D(qPt)
 
+            call InflowFlux( lU(:, qPt), bcNormal(:,idx_edge), flux, s_face)
+            S(idx_elem) = S(idx_elem) + s_face*fact
+            do idx_basis = 1, nSolBasis
 
+              res(:, idx_basis, idx_elem) = res(:, idx_basis, idx_elem) + &
+                        flux*lLinEdgePhi(idx_basis, qPt, idx_edge_loc)*fact
 
+            end do
+          end do
+        else if (bc == outlet) then
+          do qPt = 1,nLinQuadPts1D
 
-!     ! write(*,*) ''
-!     ! write(*,*) 'res'
-!     ! do, i=1,nElem
-!     !    write(*,*) res(:,i)
-!     ! enddo
+            fact = bcLength(idx_edge)*linQuadWts1D(qPt)
 
+            call OutflowFlux( lU(:, qPt), bcNormal(:,idx_edge), flux, s_face)
+            S(idx_elem) = S(idx_elem) + s_face*fact
+            do idx_basis = 1, nSolBasis
 
-!   end subroutine !getResiduals
+              res(:, idx_basis, idx_elem) = res(:, idx_basis, idx_elem) + &
+                        flux*lLinEdgePhi(idx_basis, qPt, idx_edge_loc)*fact
 
+            end do
+          end do
+        else
+          write(*,*) 'bc not regonized', bc
+        end if
+        ! write(*,*) 'bc', bc, 'flux', flux
+      end do
 
+      ! do idx_elem = 1,nElem
+      !   ! idx_elem = linElem(idx_linElem)
+      !   ! do qPt = 1, nLinQuadPts2D
 
-! end module residuals
+      !     do idx_basis = 1,nSolBasis
+      !       write(*,*)  Res(:, idx_basis, idx_elem)
+      !     end do
+      !   ! end do
+      !   write(*,*)
+      ! end do
 
+  end subroutine !getResiduals
 
 
-! module FVSolver
-!   use types
-!   use constants, only: mode
-!   use mesh, only: nElem
-!   implicit none
-!   ! integer:: nElem, nInEdge, nBCEdge
 
-!   real(dp), allocatable,  dimension(:,:):: U
-!       !  4, nelem
-!       ! state in each cell
-!   real(dp), allocatable,  dimension(:, :):: res
-!       !  4, nelem
-!       ! the residual in each cell
-!   ! real(dp), allocatable, dimension(:):: S
-!       ! nelem
-!       ! maximum wave speed in each cell
-!   real(dp), allocatable,  dimension(:,:,:):: dU_dX
+
+end module residuals
+
+
+
+module Solver
+  use types
+  ! use constants
+  use mesh, only: nElem
+  implicit none
+  ! integer:: nElem, nInEdge, nBCEdge
+
+  real(dp), allocatable,  dimension(:, :, :):: U
+      !  4, nelem
+      ! state in each cell
+  real(dp), allocatable,  dimension(:, :, :):: res
+      !  4, nelem
+      ! the residual in each cell
+  ! real(dp), allocatable, dimension(:):: S
+      ! nelem
+      ! maximum wave speed in each cell
 
 !   real(dp):: CFL=1.0
 
 !   real(dp), dimension(4):: Ub
-!   integer, parameter:: iprint=200
+  integer, parameter:: iprint=100
 
-! contains
+contains
 
-!   subroutine solve_1storder(maxiter, tol, res_max, res_2)
-!     ! after initalizing use explicit euler for time maching
+  subroutine solve_JRK(maxIter, tol, CFL, nStages,  res_max)
+    ! after initalizing use runge kutta for time maching
 
-!     use residuals, only: getResiduals
-!     integer, intent(in):: maxiter
-!     real(dp), intent(in):: tol
-!     real(dp), dimension(maxiter), intent(out):: res_max, res_2
-!     real(dp), allocatable,  dimension(:):: S
+    use residuals, only: getResiduals
 
-!     ! real(dp), intent(out), dimension(4,4):: u_sol
-!     integer:: idx, iter
+    use mesh, only: area, invM
+    use basis, only: nSolBasis
+
+    integer, intent(in):: maxiter
+    real(dp), intent(in):: tol
+    real(dp), intent(in):: CFL
+    integer, intent(in):: nStages
+
+    real(dp), dimension(maxiter), intent(out):: res_max
+
+    ! Local variables
+    real(dp), allocatable,  dimension(:):: S, dt
+    real(dp), allocatable,  dimension(:, :, :):: Ustage
+    integer:: idx, iter, ii, idx_basis
 
 
-!     write(*,*) 'using first order solver'
-!     ! allocate(u_sol(4,nElem))
+    write(*,*) 'using JRK nStages:', nStages
+
+    ! allocate(u_sol(4,nElem))
 !     ! allocate(S(nElem), res(4,nElem))
-!     allocate(S(nElem))
+    allocate(S(nElem), dt(nElem))
+    allocate(Ustage, mold=U)
+      ! ! write(*,*) 'U', shape(U), shape(Ustage)
+      !     do idx = 1, nElem
+      !       ! # U_stage = self.U
+      !       write(*,*) 'ii', ii
+      !       Ustage(:, :,idx) = U(:,:,idx) - dt(idx)/ii *&
+      !         matmul(invM(:,:,idx), res(:,:,idx))
+      !     enddo
+      do iter = 1, maxiter
 
-!     do iter = 1, maxiter
+      call getResiduals(U, res,S)
 
-!       call getResiduals(U, res,S)
+        do idx = 1, nElem
+          ! write(*,*) 'dt(idx)', S(idx)
+          dt(idx) = 2.0_dp*CFL*area(idx)/S(idx)
+          ! write(*,*) 'dt(idx)', dt(idx)
 
-!       res_max(iter) = maxval(abs(res))
-!       res_2(iter) = norm2(res)
-
-!       if (mod(iter, iprint) == 0) write(*,*) iter, res_max(iter)
-!       if (res_max(iter) <= tol .and. mode==0) exit
-
-
-!       ! write(*,*) ''
-!       ! write(*,*) 'mode', mode
-!       do idx = 1, nElem
-!         ! write(*,*) U(:,idx)
-!         U(:,idx) = U(:,idx) - 2*CFL/S(idx) *res(:,idx)
-!       end do
-
-
-!     end do
-!     ! write(*,*) 'iter', iter
+        end do
 
 
 
+        do ii = nStages, 2, -1
+          do idx = 1, nElem
+            ! # U_stage = self.U
+            ! write(*,*) 'ii', ii, shape(invM(:,:,idx)), shape(res(:,:,idx))
+            Ustage(:, :,idx) = U(:,:,idx) - dt(idx)/ii *&
+              matmul(res(:,:,idx), invM(:,:,idx) )
+          enddo
 
-!     deallocate(S)
-!   end subroutine ! solve_1storder
+            call getResiduals(Ustage, res,S)
 
+        enddo
+
+        ! write(*,*) 'u_stage'
+        ! do idx = 1, nElem
+        !   do idx_basis = 1,nSolBasis
+        !     write(*,*) Ustage(:, idx_basis,idx)
+        !   enddo
+        !   write(*,*)
+        ! enddo
+
+        ! write(*,*) 'u'
+
+        do idx = 1, nElem
+          ! # U_stage = self.U
+          U(:, :,idx) = U(:,:,idx) - dt(idx) *&
+            matmul(res(:,:,idx), invM(:,:,idx) )
+          ! do idx_basis = 1,nSolBasis
+
+          !   write(*,*) U(:, idx_basis,idx)
+          ! enddo
+          ! write(*,*)
+        enddo
+
+        res_max(iter) = maxval(abs(res))
+
+        if (mod(iter, iprint) == 0) write(*,*) iter, res_max(iter)
+        if (res_max(iter) <= tol) exit
+
+      enddo
+
+    deallocate(S, dt, Ustage)
+  end subroutine ! solve_JRK
+end module solver
 !   subroutine solve_2ndOrder(maxiter, tol, res_max, res_2)
 !       ! after initalizing use rk2 for time maching
 
