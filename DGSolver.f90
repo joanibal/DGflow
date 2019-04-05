@@ -16,7 +16,7 @@ module mesh
   integer:: nLinElem, nCurvElem
 
   ! BC integers used to compare with the BC value in bcElem2Node
-  integer:: wall, curvWall, inlet,  outlet
+  integer:: wall, curvWall, inlet,  outlet, freestream, curvfreestream
 
   real(dp), allocatable, dimension(:,:,:) :: invM
 
@@ -641,7 +641,7 @@ module residuals
         !       write(*,*)  Res(:, idx_basis, idx_elem)
         !     end do
         !   ! end do
-        !   ! write(*,*)
+        !   write(*,*)
         ! end do
 
         ! do idx_curvElem = 1,nCurvElem
@@ -652,9 +652,9 @@ module residuals
         !       write(*,*)  Res(:, idx_basis, idx_elem)
         !     end do
         !   ! end do
-        !   ! write(*,*)
+        !   write(*,*)
         ! end do
-
+        ! write(*,*) '---------------------------------'
 
 
 
@@ -667,7 +667,7 @@ module residuals
     use mesh, only: nInEdge, inEdge2Elem, inLength, inNormal, &
                     nBCEdge, bcEdge2Elem, bcLength, bcNormal, elem2CurvElem,  &
                     curvDetJEdge, curvNormal, &
-                    curvWall, wall, inlet, outlet
+                    curvWall, wall, inlet, outlet, freestream, curvfreestream, nElem
 
 
     use basis, only: lLinEdgePhi, rLinEdgePhi, &
@@ -678,6 +678,8 @@ module residuals
 
     use quadrature, only: nLinQuadPts1D, linQuadWts1D, &
           nCurvQuadPts1D, curvQuadWts1D
+
+    use constants, only: Ub
 
     real(dp), dimension(:, :, :), intent(in):: U
 
@@ -739,7 +741,7 @@ module residuals
         bc = bcEdge2Elem(3,idx_edge)
 
         ! write(*,*) idx_elem, idx_edge,  bc
-        if (bc == curvWall) then
+        if (bc == curvWall .or. bc == curvFreestream) then
           ! write(*,*) shape(U(:, :, idx_elem_left)), shape(lCurvEdgePhi(:, :, idx_edge_loc)),  bc, bc
           curvLU = matmul( U(:, :, idx_elem), lCurvEdgePhi(:, :, idx_edge_loc))
           idx_curvElem = elem2CurvElem(idx_elem)
@@ -810,8 +812,45 @@ module residuals
 
             end do
           end do
+        else if (bc == freestream) then
+
+          do qPt = 1,nlinQuadPts1D
+
+            fact = bcLength(idx_edge) * linQuadWts1D(qPt)
+            call roeFlux(lU(:, qPt), Ub, bcNormal(:,idx_edge), flux, s_face)
+            S(idx_elem) = S(idx_elem) + s_face*fact
+            ! write(*,*) 'flux', flux(:)
+            do idx_basis = 1, nSolBasis
+
+              res(:, idx_basis, idx_elem) = res(:, idx_basis, idx_elem) + &
+                        flux*lLinEdgePhi(idx_basis, qPt, idx_edge_loc)*fact
+              ! write(*,*) 'idx_basis', idx_basis, 'flux', flux*lLinEdgePhi(idx_basis, qPt, idx_edge_loc)*fact
+
+            end do
+
+          end do
+        else if (bc == curvFreestream) then
+
+
+            do qPt = 1,nCurvQuadPts1D
+
+              fact = curvDetJEdge(qPt, idx_edge_loc, idx_curvElem)*curvQuadWts1D(qPt)
+
+              call roeFlux( curvLU(:, qPt), Ub, curvNormal(:, qPt, idx_edge_loc, idx_curvElem), flux, s_face)
+              S(idx_elem) = S(idx_elem) + s_face*fact
+              do idx_basis = 1, nSolBasis
+
+                res(:, idx_basis, idx_elem) = res(:, idx_basis, idx_elem) + &
+                          flux*lCurvEdgePhi(idx_basis, qPt, idx_edge_loc)*fact
+                ! write(*,*) idx_basis, qPt, flux*lLinEdgePhi(idx_basis, qPt, idx_edge_loc)*fact
+
+              end do
+            end do
+
+
         else
           write(*,*) 'bc not regonized', bc
+          exit
         end if
         ! write(*,*) 'bc', bc, 'flux', flux
       end do
@@ -896,7 +935,7 @@ contains
       !     enddo
       do iter = 1, maxiter
 
-      call getResiduals(U, res,S)
+        call getResiduals(U, res,S)
 
         do idx = 1, nElem
           ! write(*,*) 'dt(idx)', S(idx)

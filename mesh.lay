@@ -1,8 +1,8 @@
 #!MC 1410
-$!VarSet |LFDSFN1| = '"test_multi_2.dat"'
+$!VarSet |LFDSFN1| = '"data/sol_bump_lv0_O2.dat"'
 $!VarSet |LFDSVL1| = '"X" "Y" "U" "V" "rho" "M" "Index"'
 $!SetStyleBase Factory
-$!GlobalPaper 
+$!GlobalPaper
   PaperSizeInfo
     {
     Letter
@@ -15,7 +15,7 @@ $!GlobalPaper
       BottomHardClipOffset = 0.125
       }
     }
-$!Page 
+$!Page
   Name = 'Untitled'
   PaperAttributes
     {
@@ -46,7 +46,7 @@ $!ReadDataSet  '|LFDSFN1|'
   VarNameList = '|LFDSVL1|'
 $!RemoveVar |LFDSVL1|
 $!RemoveVar |LFDSFN1|
-$!FrameLayout 
+$!FrameLayout
   ShowBorder = No
   ShowHeader = No
   HeaderColor = Red
@@ -57,17 +57,17 @@ $!FrameLayout
     }
   Width = 9
   Height = 4
-$!ThreeDAxis 
+$!ThreeDAxis
   AspectRatioLimit = 25
   BoxAspectRatioLimit = 25
 $!PlotType  = Cartesian2D
 $!FrameName  = 'Frame 001'
-$!GlobalTime 
+$!GlobalTime
   SolutionTime = 0
 $!ActiveFieldMaps  =  [1-102]
-$!GlobalEdge 
+$!GlobalEdge
   MIncreaseAngle = 125
-$!GlobalRGB 
+$!GlobalRGB
   RedChannelVar = 5
   GreenChannelVar = 3
   BlueChannelVar = 3
@@ -75,6 +75,7 @@ $!GlobalRGB
   RangeMax = 1
 $!GlobalContour  1
   Var = 5
+  DefNumLevels = 18
   Legend
     {
     Show = Yes
@@ -120,6 +121,7 @@ $!ContourLevels New
 1.02
 $!GlobalContour  2
   Var = 6
+  DefNumLevels = 17
   Legend
     {
     Show = Yes
@@ -159,6 +161,7 @@ $!ContourLevels New
 0.78
 $!GlobalContour  3
   Var = 7
+  DefNumLevels = 10
   Legend
     {
     Show = Yes
@@ -191,6 +194,7 @@ $!ContourLevels New
 100
 $!GlobalContour  4
   Var = 5
+  DefNumLevels = 18
   Legend
     {
     Show = Yes
@@ -231,6 +235,7 @@ $!ContourLevels New
 1.02
 $!GlobalContour  5
   Var = 5
+  DefNumLevels = 18
   Legend
     {
     Show = Yes
@@ -271,6 +276,7 @@ $!ContourLevels New
 1.02
 $!GlobalContour  6
   Var = 5
+  DefNumLevels = 18
   Legend
     {
     Show = Yes
@@ -311,6 +317,7 @@ $!ContourLevels New
 1.02
 $!GlobalContour  7
   Var = 5
+  DefNumLevels = 18
   Legend
     {
     Show = Yes
@@ -351,6 +358,7 @@ $!ContourLevels New
 1.02
 $!GlobalContour  8
   Var = 5
+  DefNumLevels = 18
   Legend
     {
     Show = Yes
@@ -389,7 +397,7 @@ $!ContourLevels New
 1
 1.01
 1.02
-$!GlobalScatter 
+$!GlobalScatter
   Legend
     {
     XYPos
@@ -437,7 +445,7 @@ $!FieldMap  [1-102]
     }
   Surfaces
     {
-    SurfacesToPlot = None
+    SurfacesToPlot = KPlanes
     IRange
       {
       Max = 1
@@ -456,7 +464,7 @@ $!FieldMap  [1-102]
     {
     LightingEffect = Gouraud
     }
-$!TwoDAxis 
+$!TwoDAxis
   XDetail
     {
     VarNum = 1
@@ -466,7 +474,7 @@ $!TwoDAxis
     VarNum = 2
     }
 $!View Fit
-$!TwoDAxis 
+$!TwoDAxis
   DepXToYRatio = 1
   ViewportPosition
     {
@@ -476,21 +484,21 @@ $!TwoDAxis
     Y2 = 95
     }
   ViewportTopSnapTarget = 95
-$!TwoDAxis 
+$!TwoDAxis
   XDetail
     {
     ShowAxis = No
-    RangeMin = -0.32553469777832816368
-    RangeMax = 0.33810107940956296568
-    GRSpacing = 0.2
+    RangeMin = -0.10032587443792492787
+    RangeMax = 0.10891126500572198554
+    GRSpacing = 0.05
     }
-$!TwoDAxis 
+$!TwoDAxis
   YDetail
     {
     ShowAxis = No
-    RangeMin = -0.00037462404438502044934
-    RangeMax = 0.29457461026134429405
-    GRSpacing = 0.05
+    RangeMin = 0.045647318080278227737
+    RangeMax = 0.13864160227745464526
+    GRSpacing = 0.02
     }
 $!IsoSurfaceAttributes  1
   IsoSurfaceSelection = OneSpecificValue
@@ -695,7 +703,7 @@ $!SliceAttributes  8
     LightingEffect = Gouraud
     SurfaceTranslucency = 10
     }
-$!StreamAttributes 
+$!StreamAttributes
   StreamTiming
     {
     MarkSize = 1
@@ -712,9 +720,9 @@ $!StreamAttributes
       }
     }
   MaxSteps = 10000
-$!FieldLayers 
+$!FieldLayers
   ShowMesh = No
-$!StreamtraceLayers 
+$!StreamtraceLayers
   Show = No
 $!FrameControl ActivateByNumber
   Frame = 1

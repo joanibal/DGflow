@@ -1,9 +1,9 @@
 \documentclass{article}
 \usepackage[utf8]{inputenc}
 
-\title{623 Project 2: Finite Volume Solver}
+\title{623 Project 3: Discontinuous Galerkin Finite Element Solver}
 \author{Josh Anibal}
-\date{February 22nd 2019}
+\date{April 5th 2019}
 
 \usepackage{natbib}
 \usepackage{graphicx}
@@ -17,13 +17,17 @@
 \usepackage[english]{babel}
 
 \usepackage{floatrow}
+
+\usepackage[outdir=./]{epstopdf}
+\usepackage[parfill]{parskip}
+% \epstopdfsetup{outdir=./}
 % Table float box with bottom caption, box width adjusted to content
 \newfloatcommand{capbtabbox}{table}[][\FBwidth]
-
+% \setlength\parindent{0pt}
 \graphicspath{{../figures/}}
 
-\setlength{\parindent}{4em}
-\setlength{\parskip}{1em}
+% \setlength{\parindent}{4em}
+% \setlength{\parskip}{1em}
 % \renewcommand{\baselinestretch}{2.0}
 \usepackage{float}
 
@@ -34,8 +38,8 @@
 \maketitle
 
 \section*{Introduction}
-% In this assignment we were tasked with using a first and second-order finite volume scheme to solve the Euler equations for the sequences meshes generated in the last project.
-% In this report we will study the convergence properties of key outputs found, and compare the flow fields found using each method.
+In this assignment we were tasked with using a discontinuous Galerkin (DG) finite element method (FEM) to solve the Euler equations for the flow field over a bump in a chanel.
+In this report we will study the effect of the solution basis function order ($p$) on the convergence properties of key outputs and flow field.
 
 
 
@@ -66,11 +70,12 @@
 
 	By solving these equations numerically we can determine an approximate solution for the state of the fluid within the domain.
 
+
 \subsection{Discretization}
 	\subsubsection{Spatial}
-	These equations were discretized spatially using the discontinuous Galerkin finite element method, DG FEM.
-	With this method, the domain is discretized in to elements, each of with set of basis functions.
-	By selecting the coefficients on these basis functions, the solution can be represented within each element.
+	These equations were discretized spatially using the discontinuous Galerkin finite element method.
+	With this method, the domain is discretized into elements, each of with set of basis functions.
+	By selecting the coefficients on these basis functions, the solution can be represented continuously within each element.
 	In this particular case a set of full-order Lagrange basis functions were used for the basis functions within each cell.
 	One advantage of DG FEM is that  it can be used to theoretically achieve an arbitrary order of accuracy by selecting basis function of the corresponding order.
 
@@ -91,23 +96,28 @@
 		\label{eqn:mass}
 	\end{equation}
 
-	$\mathbf{R}_k$ represents the weighted residuals in each element and has a component related to the solution represented in the interior and at element edges as shown in Equation \ref{eqn:res}.
+	$\mathbf{R}_k$ represents the weighted residuals in each element and has a component related to the solution representation in the interior and at element edges as shown in Equation \ref{eqn:res}.
 	\begin{equation}
 		R_{k, i}=\underbrace{-\int_{\Omega_{k}} \nabla \phi_{k, i} \cdot \vec{F} d \Omega}_{\text interior}+ \underbrace{\int_{\partial \Omega_{k}} \phi_{k, i}^{+} \hat{F}\left(u^{+}, u^{-}, \vec{n}\right) dl}_{edge}
 		\label{eqn:res}
 	\end{equation}
 
 	The component of the residual related to the edge contribution enforces coupling between the elements and adds convective stability.
-	The calculation of this component requires a computational flux calculation; For this implementation of DG FEM the Roe flux function was used.
+	The calculation of this component requires a computational flux calculation; For this implementation of DG the Roe flux function was used.
 
+	The Roe flux is given by Equation \ref{eqn:roe} and uses a Roe-averaged state ,$\mathbf{u}^{*}$, to upwind each wave.
+	\begin{equation}
+		\hat{\mathbf{F}}=\frac{1}{2}\left(\mathbf{F}_{L}+\mathbf{F}_{R}\right)-\frac{1}{2}\left|\frac{\partial \mathbf{F}}{\partial \mathbf{u}}\left(\mathbf{u}^{*}\right)\right|\left(\mathbf{u}_{R}-\mathbf{u}_{L}\right)
+		\label{eqn:roe}
+	\end{equation}
 
 	\subsubsection{Time Integration}
-	To solve to the steady state of the flow in the domain we will march the state of the system forward in time until the residuals fall to within some tolerance.
+	To solve for the steady state of the flow in the domain we will march the state of the system forward in time until the residuals fall to within some tolerance.
 
 	To advance the solution in time we use the Jameson Runge Kutta method with 4 stages (JRK4) shown in Equation \ref{eqn:JRK} .
 	This method is 4th order accuracy in time and helps maintain stability for the more accurate spacial descretizations.
 	The advantage of the Jameson implementation of the Runge Kutta scheme is that it reduces the memory required by ensuring each stage only depends on the prior.
-	Additionally, time integration schemes we tried, such as total variation diminishing Runge Kutta 2 and 3 , but JRK4 was found to preform the best for this specific problem.
+	Additional time integration schemes we tried, such as total variation diminishing Runge Kutta 2 and 3 , but JRK4 was found to preform the best for this specific problem.
 	\begin{equation}
 	\begin{aligned} u^{(1)} &=u_{n}+\frac{h}{4} L\left(u_{n}\right) \\ u^{(2)} &=u_{n}+\frac{h}{3} L\left(u^{(1)}\right) \\ u^{(3)} &=u_{n}+\frac{h}{2} L\left(u^{(2)}\right) \\ u_{n+1} &=u_{n}+h L\left(u^{(3)}\right) \end{aligned}
 		\label{eqn:JRK}
@@ -117,9 +127,9 @@
 
 	\subsubsection{Geometry}
 
-	To get high-order accuracy in our solution high-order geometry it required.
+	To get high-order accuracy in our solution, high-order geometry is required.
 	More specifically to ensure the theoretical order of accuracy of the solution we need a geometry of one order higher than the solution.
-	To represent a higher-order geometry we use a set of Lagrange basis functions for the elements along the wall.
+	To represent a higher-order geometry we use a set of Lagrange basis functions to map points from reference space to global space for the elements along the wall.
 	The coefficients of the basis functions are the nodes of the element with additional nodes added to match the exact geometry.
 	The intermediate points (such as the quadrature points) are then determined by evaluating the sum of the Lagrange basis functions (Equation \ref{eqn:qbasis}).
 
@@ -128,8 +138,8 @@
 	\label{eqn:qbasis}
 	\end{equation}
 
-	The resulting mehs geometry for the \texttt(bump0) for each geometry order is shown in Table \ref{tab:mesh}
-\begin{table}[ht]
+	A zoomed-in view of the geometry for the \texttt{bump0.gri} mesh is shown in Table \ref{tab:mesh} to highlight the differences caused by geometric order.
+\begin{table}[H]
 	\begin{center}
 	\begin{tabular}{ c@{}c@{} }
 
@@ -141,7 +151,7 @@
 		\hline
 		% \vspace{1mm}
 		\vspace{0.1mm}\\
-		\multicolumn{2}{@{}c@{}}{\includegraphics[width=0.75\textwidth,keepaspectratio]{meshq2.pdf}}\\
+		\multicolumn{2}{@{}c@{}}{\includegraphics[width=0.75\textwidth,keepaspectratio]{bump0q1.pdf}}\\
 
 		\hline
 		\multicolumn{2}{@{}c@{}}{Quadratic ($q=2$)}\\
@@ -149,7 +159,7 @@
 		\hline
 		\vspace{0.1mm}\\
 
-		\multicolumn{2}{@{}c@{}}{\includegraphics[width=0.75\textwidth,keepaspectratio]{meshq2.pdf}}\\
+		\multicolumn{2}{@{}c@{}}{\includegraphics[width=0.75\textwidth,keepaspectratio]{bump0q2.pdf}}\\
 
 		\hline
 		\multicolumn{2}{@{}c@{}}{Cubic ($q=3$)}\\
@@ -157,7 +167,7 @@
 		\hline
 		\vspace{0.1mm}\\
 
-		\multicolumn{2}{@{}c@{}}{\includegraphics[width=0.75\textwidth,keepaspectratio]{meshq2.pdf}}\\
+		\multicolumn{2}{@{}c@{}}{\includegraphics[width=0.75\textwidth,keepaspectratio]{bump0q3.pdf}}\\
 		\vspace{0.25mm}\\
 	\end{tabular}
 	\caption{Geometric reparation of \texttt{bump0.gri} for the each geometric representation order}
@@ -170,180 +180,218 @@
 
 
 
-% \section{Accuracy Checks}
-% Before the code was used to solve for the flow on the given meshes, multiple accuracy checks were preformed.
-
-% \subsection{Roe Flux}
-
-% The following values were used to check the roe flux.
-% \begin{eqnarray*}
-% 	\mathbf{u}_L = [2.0, 2.2, 0.1, 9.9] \\
-% 	\mathbf{u}_R = [0.9, 0.1, 2.2, 11.0] \\
-% 	\mathbf{u_\textrm{supersonic}} = [1.63 ,  2.53,  6.32, 25.88] \\
-% 	\vec{n} = [\frac{\sqrt{2}}{2}, \frac{\sqrt{2}}{2} ]
-% 	% \label{eqn:bump}
-% \end{eqnarray*}
-
-% If both states on either side of the face are the same, the Roe flux should be the same as the analytic flux dotted with the normal.
-% This check was preformed and indeed found to be true of this implementation of the Roe flux.
-% \begin{equation*}
-% 	\mathbf{\hat{F}}(\mathbf{u}_L, \mathbf{u}_L, \vec{n}) = \mathbf{\vec{F}}(\mathbf{u}_L) \cdot \vec{n} = [1.63 , 4.25, 2.54, 10.88]
-% \end{equation*}
-
-% Furthermore, flipping the right and left cells along with the normal should only change the sign of the flux.
-% This was also found to be true of the implementation of the Roe flux used.
-% \begin{equation*}
-% 	%\mathbf{\hat{F}}(\mathbf{u}_L, \mathbf{u}_R, \vec{n}) %= -\mathbf{\hat{F}}(\mathbf{u}_R, \mathbf{u}_L, -\vec{n}) %= [1.90,  4.06,  2.437, 13.04]
-% 	\mathbf{\hat{F}}(\mathbf{u}_L, \mathbf{u}_R, \vec{n}) = -\mathbf{\hat{F}}(\mathbf{u}_R, \mathbf{u}_L, -\vec{n}) =  [1.90,  4.06,  2.44, 13.04]
-% \end{equation*}
-
-% At supersonic speeds the state of the right cell should not effect the value of the Roe flux, which should also be equal to the analytic flux of the left cell.
-% This was also found to hold true for this code.
-% \begin{equation*}
-% 	\mathbf{\hat{F}}(\mathbf{u_\textrm{supersonic}}, \mathbf{u}_R, \vec{n}) = \mathbf{\vec{F}}(\mathbf{u_\textrm{supersonic}}) \cdot \vec{n} = [1.63 , 4.25, 2.54, 10.88]
-% \end{equation*}
-
-% \subsection{Residual Calculation}
-% To verify that the residuals were computed correctly all interior states were initialized to the free-stream state and the boundary condition fluxes were replaced using halo cells also set to the free-stream state.
-% The resulting residuals were on the order of machine precision, as expected, and are shown in Table \ref{tab:freestream}.
+\section{Accuracy Checks}
+Before the code was used to solve for the actual flow field, a free stream residual and preservation test were preformed and an additional converge check.
 
 
-% \begin{table}[H]
-% 	\label{tab:freestream}
-% 	\begin{tabular}{@{}lll@{}}
-% 	\toprule
-% 								& 1st Order & 2nd Order \\ \midrule
-% 	$|R_{\infty}|$ & 2.2e-16  & 5.55e-16  \\ \bottomrule
-% 	\caption{Residuals of the free-stream preservation test}
-
-% 	\end{tabular}
-% \end{table}
-% \subsection{Time Stepping}
-% A free-stream preservation test was performed to verify that the explicit Euler and RK2 methods were correctly updating the states. Each time stepping method was run for 1,000 iteration and the starting and ending residual values are shown in Table 2.
-% The residual at each iteration is also shown in Figure \ref{fig:free_stream}. The results of this test show that the residuals for both methods stay relatively constant over time as they should.
-% \begin{table}[H]
-% 	\label{tab:fsp}
-% 	\begin{tabular}{@{}lll@{}}
-% 	\toprule
-% 		& 1st Order & 2nd Order \\ \midrule
-% 		Starting $|R_{\infty}|$ & 2.2e-16  & 5.55e-16  \\
-% 		Ending $|R_{\infty}|$ & 8.88e-16   & 1.11e-15  \\ \bottomrule
-% 	\caption{Starting and ending residuals of the free-stream preservation test}
-
-% 	\end{tabular}
-% \end{table}
-
-% \begin{figure}[H]
-% 	\centering
-% 	\includegraphics[width=0.60\textwidth,keepaspectratio]{freestream.png}
-% 	\caption{Residual history for the free-stream preservation test}
-% 	\label{fig:free_stream}
-% \end{figure}
+\subsection{Residual Calculation}
+To verify that the residuals were computed correctly all interior states were initialized to the free-stream state and the boundary condition fluxes were replaced using halo cells also set to the free-stream state.
+The resulting residuals were on the order of machine precision, as expected, and are shown in Table \ref{tab:freestream}.
 
 
-% Furthermore we can see when we apply these time marching methods to actual problems that the residual is driven to zero as shown in Figure \ref{fig:res_history}
-% \begin{figure}[H]
-% 	\centering
-% 	\includegraphics[width=0.60\textwidth,keepaspectratio]{res_history.png}
-% 	\caption{Residual history for \texttt{bump0.gri}}
-% 	\label{fig:res_history}
-% \end{figure}
+\begin{table}[H]
+		\label{tab:freestream}
+		\begin{tabular}{@{}llll@{}}
+			\toprule
+			& 0th Order& 1st Order & 2nd Order \\ \midrule
+			$|R_{\infty}|$ & 2.2e-16  & 2.31e-15 & 4.247e-15  \\
+			\bottomrule
+
+		\caption{Residuals of the free-stream residual test}
+		\end{tabular}
+\end{table}
+
+\subsection{Time Stepping}
+A free-stream preservation test was performed to verify that the JRK4 methods was correctly updating the states.
+The method was used to take 1,000 time steps and the starting and ending residual values are shown in Table 2.
+Figure \ref{fig:free_stream} shows the residual at each iteration.
+The residual for each methods hoovers around machine precision, with the exception of the 0th order method.
+It is theorized that the residual of the 0th-order method stays constant because the initial residual was already at machine precision and then was multiplied by the inverse mass matrix and time step (both are less than 1 typically) before being used to calculate the next state causing under flow.
+
+% The results of this test show that the residuals for both methods stay relatively constant over time as they should.
+\begin{table}[H]
+	\label{tab:fsp}
+	\begin{tabular}{@{}llll@{}}
+	\toprule
+		& 0th Order& 1st Order & 2nd Order \\ \midrule
+		Starting $|R_{\infty}|$ & 2.2e-16  & 2.31e-15 & 4.247e-15  \\
+		Ending $|R_{\infty}|$ & 2.2e-16   & 4.72e-16 & 5.97e-16 \\
+	\bottomrule
+	\caption{Starting and ending residuals of the free-stream preservation test}
+
+	\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.60\textwidth,keepaspectratio]{freestream.png}
+	\caption{Residual history for the free-stream preservation test}
+	\label{fig:free_stream}
+\end{figure}
 
 
 
-% \section{Key outputs}
 
-% \subsection{Rates of Convergence}
 
-% The coefficient of lift ($C_l$), coefficient of drag $(C_d$), and integrated entropy error of the domain (Es) where calculated for each of the five meshes and the convergence of these values can be seen in Figures \ref{fig:conv_cl}, \ref{fig:conv_cd}, and \ref{fig:conv_Es} respectively.
-% I have included the rate of convergence in each figure for convenience.
-% In general, the second order method converged toward the exactly value faster than the first order method, but was not also more accurate for each mesh size (error in cl was initially worse).
+\subsection{Convergence}
 
-% \begin{figure}[H]
-% 	\centering
-% 	\includegraphics[width=0.60\textwidth,keepaspectratio]{conv_cd.png}
-% 	\caption{The difference between the exact and calculated coefficient of drag decreases with an increasing number elements}
-% 	\label{fig:conv_cl}
-% \end{figure}
-% \begin{figure}[H]
-% 	\centering
-% 	\includegraphics[width=0.60\textwidth,keepaspectratio]{conv_cl.png}
-% 	\caption{The difference between the exact and calculated coefficient of lift decreases with an increasing number elements}
-% 	\label{fig:conv_cd}
-% \end{figure}
-% \begin{figure}[H]
-% 	\centering
-% 	\includegraphics[width=0.60\textwidth,keepaspectratio]{conv_Es.png}
-% 	\caption{The total entropy goes to zero with an increasing number elements}
-% 	\label{fig:conv_Es}
-% \end{figure}
+When we apply our methodology to the actual problem of the flow through a chanel with a bump, the residuals are indeed driven to zero.
+Figure \ref{fig:res_history} shows the convergence history for each order on the \texttt{bump0.gri} mesh.
+The 1st and 2nd order methods take approximately 4x and 18x the number of iterations to converge the solution to the same accuracy.
+Additionally, the residuals for the 1st and 2nd order methods oscillate much more than that of the 0th order method.
 
 
 
-% \subsection{Impact of Reconstruction on Convergence}
-% During the course of this assignment if was found that for the second-order method reconstructing the state when computing the boundary condition fluxes and when computing the pressure on the wall had a large impact on the overall convergence path for each of the key quantities.
-% Figure \ref{fig:conv_cl_ex}, \ref{fig:conv_cd_ex}, and \ref{fig:conv_Es_ex} show how  ($C_l$), $(C_d$), and Es converge for each combination of reconstruction.
-% I elected to reconstruct the states based on $\frac{d\mathbf{u}}{d\mathbf{x}}$ for both the boundary fluxes and when recomputing the pressure along the wall to determine the aerodynamic coefficients (this felt like like the most rigorous thing to do).
-% Although it should be noted that this choice to use reconstruction for both did not lead to the smoothest convergence plots for my second-order method.
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.60\textwidth,keepaspectratio]{converg.pdf}
+	\caption{Residual history for \texttt{bump0.gri}}
+	\label{fig:res_history}
+\end{figure}
+
+\subsection{Rates of Convergence}
+
+The coefficient of lift ($C_l$), coefficient of drag $(C_d$), and integrated entropy error of the domain (Es) where calculated for each each solution order and the convergence of these values can be seen in Figures \ref{fig:conv_cl}, \ref{fig:conv_cd}, and \ref{fig:conv_Es} respectively.
+The value of each quantity is plotted against the number of degrees of freedom (dof), which is total number of unknowns solved in the problem.
+For the DG FEM the total number of degrees of freedom is simply the number of elements multiplied by the number of solution basis functions in each element.
 
 
-% \begin{figure}[H]
-% 	\centering
-% 	\includegraphics[width=0.60\textwidth,keepaspectratio]{conv_cd_ex.png}
-% 	\caption{The convergence of $C_d$ is smoothest without reconstructing the state at the edge in boundary flux Calculations}
-% 	\label{fig:conv_cl_ex}
-% \end{figure}
-% \begin{figure}[H]
-% 	\centering
-% 	\includegraphics[width=0.60\textwidth,keepaspectratio]{conv_cl_ex.png}
-% 	\caption{For each of the methods, the convergence of $C_l$ is somewhat jagged}
-% 	\label{fig:conv_cd_ex}
-% \end{figure}
-% \begin{figure}[H]
-% 	\centering
-% 	\includegraphics[width=0.60\textwidth,keepaspectratio]{conv_Es_ex.png}
-% 	\caption{The geometry for which the meshes were generated}
-% 	\label{fig:conv_Es_ex}
-% \end{figure}
+The rate of convergence is included in each figure for convenience.
+In general, the higher the solution order the faster the method converged toward the exactly value.
+However this was not always the case, for example the 1st order method converged at a greater rate than the 2nd order method for both $C_l$ and $C_d$.
+This is believed to have happened because of a possible inaccuracy in the "true" values for $C_l$ and $C_d$ as stated by Professor Fidkowski on Piazza.
+
+\begin{figure}[H]
+		\centering
+		\includegraphics[width=0.60\textwidth,keepaspectratio]{conv_cd.png}
+		\caption{Increasing the number of dof results in a more accurate $C_l$ estimation}
+	\label{fig:conv_cl}
+\end{figure}
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.60\textwidth,keepaspectratio]{conv_cl.png}
+	\caption{Increasing the number of dof results in a more accurate $C_d$ estimation}
+	\label{fig:conv_cd}
+\end{figure}
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.60\textwidth,keepaspectratio]{conv_Es.png}
+	\caption{The total entropy goes to zero with an increasing dof}
+	\label{fig:conv_Es}
+\end{figure}
 
 
-% \subsection{Pressure Coefficient}
-% Figure \ref{fig:cp} shows the coefficient of pressure along the lower wall for the \texttt{bump2.gri} mesh.
-% The second-order method produces a pressure field that is more symmetric on either side of the bump, which we would expect as the exact answer is symmetric.
-% \begin{figure}[H]
-% 	\centering
-% 	\includegraphics[width=0.60\textwidth,keepaspectratio]{cp.png}
-% 	\caption{The total entropy converges smoothly for all the methods}
-% 	\label{fig:cp}
-% \end{figure}
-% \subsection{Mach Contours}
-% Table \ref{tab:mach} compares the mach field of \texttt{bump2.gri} of the first and second-order methods.
-% As shown, the second-order method does a better job of preserving the symmetry that you would expect to see in this flow.
-% This showcases qualitatively how much more accurate the second-order solver is than the first-order solver.
-% \begin{table}[ht]
-% 	\begin{center}
-% 	\begin{tabular}{ c@{}c@{} }
+
+\subsection{Run time}
+For each combination of mesh refinement and solution order, the wall time was also measured and is shown in Figure \ref{fig:walltime}.
+% For each accuracy level higher order methods
+This comparison really highlights the advantage of the high-order DG methods.
+For a given accuracy level the highest-order method is the quickest, and for a set time limit the highest-order method was the most accurate!
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.60\textwidth,keepaspectratio]{walltime.png}
+	\caption{The highest-order methods is the quickest for a given level of accuracy}
+	\label{fig:walltime}
+\end{figure}
 
 
-% 		\hline
-% 		\multicolumn{2}{@{}c@{}}{First-Order}\\
 
 
-% 		\hline
-% 		\multicolumn{2}{@{}c@{}}{\includegraphics[width=0.75\textwidth,keepaspectratio]{machCons_1.png}}\\
 
-% 		\hline
-% 		\multicolumn{2}{@{}c@{}}{Second-Order}\\
+\subsection{Pressure Coefficient}
+Figure \ref{fig:cp} shows the coefficient of pressure ($C_p$) along the lower wall for the \texttt{bump2.gri} mesh.
+The 1st and 2nd-order methods produce a similar distribution that is more continuous and symmetric than the 0th order solution.
 
-% 		\hline
-% 		\multicolumn{2}{@{}c@{}}{\includegraphics[width=0.75\textwidth,keepaspectratio]{machCons_2.png}}\\
-% 		\vspace{0.25mm}\\
-% 	\end{tabular}
-% 	\caption{\texttt{bump2.gri} mach contours for each method}
-% 	\label{tab:mach}
-% 	\vspace*{-3mm}
-% 	\end{center}
-% \end{table}
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.60\textwidth,keepaspectratio]{cp.png}
+	\caption{The coefficient of pressure along the bump for each solution order}
+	\label{fig:cp}
+\end{figure}
+
+Although the 1st and 2nd-Order methods are near identical, the 1st-order method has a larger jump between element which
+can be seen by zooming in on ($C_p$) distribution (Figure \ref{fig:cp_zoom}).
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.60\textwidth,keepaspectratio]{cp_zoom.png}
+	\caption{The 1st order method follows the same path as the 2nd order, but is more discontinuous}
+	\label{fig:cp_zoom}
+\end{figure}
+
+\subsection{Mach Contours}
+Table \ref{tab:mach} compares the Mach field of the \texttt{bump2.gri} mesh for each order of basis functions.
+As shown, the 1st and 2nd order solutions do a much better job of representing the smooth nature of the mach distribution.
+The 1st and 2nd order Mach fields are almost the same, but the 2nd-order solution is more symmetry (as it should be).
+\begin{table}[H]
+	\begin{center}
+	\begin{tabular}{ c@{}c@{} }
+
+
+		\hline
+		\multicolumn{2}{@{}c@{}}{0th-Order Basis ($p=0$)}\\
+
+
+		\hline
+		\multicolumn{2}{@{}c@{}}{\includegraphics[width=0.85\textwidth,keepaspectratio]{machp0.png}}\\
+
+		\hline
+		\multicolumn{2}{@{}c@{}}{1st-Order Basis ($p=1$)}\\
+		\hline
+
+		\multicolumn{2}{@{}c@{}}{\includegraphics[width=0.85\textwidth,keepaspectratio]{machp1.png}}\\
+		\hline
+		\multicolumn{2}{@{}c@{}}{2nd-Order Basis ($p=2$)}\\
+		\hline
+		% \vspace{0.01pt}\\
+
+		\multicolumn{2}{@{}c@{}}{\includegraphics[width=0.85\textwidth,keepaspectratio]{machp2.png}}\\
+		% \vspace{0.25mm}\\
+	\end{tabular}
+	\caption{\texttt{bump2.gri} Mach contours for each method}
+	\label{tab:mach}
+	\vspace*{-3mm}
+	\end{center}
+\end{table}
+
+\subsection{Comparison with Finite Volume Method}
+Figures \ref{fig:comp_cl}, \ref{fig:comp_cd}, \ref{fig:comp_Es} show the converge of the output parameters for both the DG and finite volume methods (FVM).
+
+The 0th-order basis DG and the 1st order FVM are nearly identical of all outputs.
+However, the  1st order FVM solution is slightly faster to compute, as shown in Figure \ref{fig:comp_walltime}.
+Although, because the 1st order FVM outputs converge so slowly it is unlike to ever be a benefit in practice.
+Otherwise, the DG method does as good or better than the FVM in terms of all other outputs and runtime!
+Although it was more work to implement, the DG method offers greater levels of accuracy for a given run time and  more flexibility in terms of the desired order of accuracy.
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.60\textwidth,keepaspectratio]{comp_cd.png}
+	\caption{The DG and FVM methods predict $C_d$ similarly for a given number of dof}
+\label{fig:comp_cl}
+\end{figure}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.60\textwidth,keepaspectratio]{comp_cl.png}
+\caption{The high-order DG methods predict $C_l$ more accurately}
+\label{fig:comp_cd}
+\end{figure}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.60\textwidth,keepaspectratio]{comp_Es.png}
+\caption{The higher-order DG methods tend toward zero total entropy at a faster rate than the FVM}
+\label{fig:comp_Es}
+\end{figure}
+
+
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.60\textwidth,keepaspectratio]{comp_walltime.png}
+	\caption{The highest-order DG methods is the quickest for a desired level of accuracy}
+	\label{fig:comp_walltime}
+\end{figure}
+
+
 
 
 % \bibliography{references}

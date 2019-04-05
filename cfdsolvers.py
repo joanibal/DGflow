@@ -5,6 +5,7 @@ from __future__ import print_function
 import numpy as np
 import matplotlib.pyplot as plt
 from meshes import Mesh
+import copy
 # import flux_lib
 import time
 # from solver import fvsolver as solver
@@ -20,9 +21,6 @@ import quadrules
 
 # TODO
 """
-
-    # do post processing for outputs
-        - mach
 
 """
 
@@ -63,6 +61,9 @@ class DGSolver(object):
         self.wall = -1
         self.inlet = -1
         self.outlet = -1
+        self.freestream = 10 # some value that won't match the other bcs
+        self.curvFreestream = 100 # some value that won't match the other bcs
+
         for idx, bcname in enumerate(mesh.BCs.keys()):
             if 'curv' in bcname and 'wall' in bcname:
                 self.curvWall = idx
@@ -156,7 +157,7 @@ class DGSolver(object):
         dg_solver.constants.ptot_inf = self.Ptot_inf
         dg_solver.constants.p_inf = self.P_inf
         dg_solver.constants.alpha = self.alpha
-
+        dg_solver.constants.ub = self.Ub
 
     def setAllFortranVariables(self):
         """
@@ -181,6 +182,8 @@ class DGSolver(object):
         dg_solver.mesh.wall = self.wall + 1
         dg_solver.mesh.inlet = self.inlet + 1
         dg_solver.mesh.outlet = self.outlet + 1
+        dg_solver.mesh.freestream = self.freestream + 1
+        dg_solver.mesh.curvfreestream = self.curvFreestream + 1
 
         dg_solver.mesh.innormal = self.mesh.inNormal.T
         dg_solver.mesh.bcnormal = self.mesh.bcNormal.T
@@ -633,8 +636,8 @@ class DGSolver(object):
         self.wallTime = time.time() - t
 
         # transfer computed values back to python
-        DGSolver.U = dg_solver.solver.u.T
-        DGSolver.R = dg_solver.solver.res.T
+        self.U = dg_solver.solver.u.T
+        self.R = dg_solver.solver.res.T
 
 
 
@@ -684,7 +687,6 @@ class DGSolver(object):
         """
             get Cl, Cd, and Cp(x)
         """
-
         # ------------ total entropy error --------------
         # entropy = np.zeros(self.mesh.nElem)
         # EsTot = 0
@@ -927,13 +929,32 @@ class DGSolver(object):
         np.set_printoptions(threshold=1000)
 
 
+    def testFreestream(self):
+        """ changes all the bc to free stream and then preforms 10000
+        iterateions and sets the bcs back again
+
+        """
+
+        oldBCEdge2Elem = copy.copy(self.mesh.bcEdge2Elem)
+
+        #change all bc conditions to freestream
+        self.mesh.bcEdge2Elem[:,2] = self.freestream
+        # import ipdb; ipdb.set_trace()
+        self.mesh.bcEdge2Elem[oldBCEdge2Elem[:,2] == self.curvWall, 2] = self.curvFreestream
+
+        self.solve(maxIter=1000, tol=1e-32, cfl=0.4)
+        # import ipdb; ipdb.set_trace()
+
+        self.mesh.bcEdge2Elem[:,2] = oldBCEdge2Elem[:,2]
+
+
 if __name__ == '__main__':
     # bump = Mesh('meshes/test0_21.gri')
 
     def flatWall(x):
         return -x*(x-1)*0.2
         # return 0
-        # return x*0.1
+        # return x*0.1 + 1
 
     def bumpShape(x):
         return 0.0625*np.exp(-25*x**2)
@@ -944,14 +965,18 @@ if __name__ == '__main__':
     # bump = Mesh('meshes/test0_2.gri', wallGeomFunc=flatWall, check=True)
     # bump = Mesh('meshes/refElem.gri', wallGeomFunc=flatWall)
     # bump.refine()
-    bump.refine()
+    # bump.refine()
     # bump.refine()
 
     # test = Mesh('meshes/test0_2.gri', wallGeomFunc=flatWall)
-    DGSolver = DGSolver(bump, order=1)
+    DGSolver = DGSolver(bump, order=0)
 
-    # DGprint(FVSolver.getResidual())
-    DGSolver.solve(maxIter=90000, cfl=0.79)
+
+    DGSolver.solve(maxIter=1000, cfl=0.4)
+    # plt.figure(2)
+    DGSolver.postprocess()
+    # DGSolver.plotResiduals()
+
     # DGSolver.solve_python(maxIter=10000, cfl=0.87, method='TVDRK3')
     # DGSolver.plotResiduals()
     # DGSolver.__init__(bump, order=1)
@@ -962,14 +987,13 @@ if __name__ == '__main__':
     # DGSolver.__init__(bump, order=2)
 
     # DGSolver.solve(maxIter=10000, cfl=0.5)
-    # DGSolver.plotResiduals()
+    # plt.show()
 
 
     # plt.show()
     # DGSolver.solve_python(maxIter=15, cfl=0.5)
-    DGSolver.postprocess()
-    import ipdb; ipdb.set_trace()
-    # DGSolver.writeSolution('test_multi_2')
+    # import ipdb; ipdb.set_trace()
+    DGSolver.writeSolution('test_multi_2')
     # import ipdb
     # ipdb.set_trace()
     # t = time.time()
