@@ -12,7 +12,7 @@ def bumpShape(x):
     return 0.0625*np.exp(-25*x**2)
 
 
-if False:
+if True:
     # bump = Mesh('meshes/bump0_kfid.gri')
     # test freestream
 
@@ -140,7 +140,7 @@ if False:
     fileObject.close()
 
 
-if True:
+if False:
     # compare the performance of DG with FVM
     fileObject = open('./data/FV_convergence_data.p', 'rb')
     dataFV = pickle.load(fileObject)

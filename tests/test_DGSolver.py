@@ -9,34 +9,25 @@ from meshes import Mesh
 from cfdsolvers import DGSolver
 import dg_solver
 
-# class TestBasic(unittest.TestCase):
 
-#     def setUp(self):
-#         test_mesh = Mesh('meshes/test.gri')
-#         self.CFDSolver = DGSolver(test_mesh)
+def bumpShape(x):
+    return 0.0625*np.exp(-25*x**2)
 
-#     def test_freestream(self):
-#         self.CFDSolver.solve(maxIter=1, freeStreamTest=True)
-#         self.assertAlmostEqual(self.CFDSolver.Rmax[0], 0.0)
 
-#     def test_freestream_preservation(self):
-#         self.CFDSolver.solve(maxIter=1000, freeStreamTest=True)
-#         self.assertAlmostEqual(self.CFDSolver.Rmax[0], 0.0)
+if True:
+    bump = Mesh('meshes/bump0_kfid.gri', wallGeomFunc=bumpShape)
 
 
 class TestResiduals(unittest.TestCase):
 
     def setUp(self):
-        test_mesh = Mesh('meshes/test.gri')
-        self.CFDSolver = DGSolver(test_mesh)
-
-    def test_InternalResiduals(self):
-        self.CFDSolver.solve(maxIter=1, freeStreamTest=True)
-        self.assertAlmostEqual(self.CFDSolver.Rmax[0], 0.0)
+        self.bump = Mesh('meshes/bump0_kfid.gri', wallGeomFunc=bumpShape)
 
     def test_freestream_preservation(self):
-        self.CFDSolver.solve(maxIter=1000, freeStreamTest=True)
-        self.assertAlmostEqual(self.CFDSolver.Rmax[0], 0.0)
+        for order in range(3):
+            CFDSolver = DGSolver(self.bump, order=order)
+            CFDSolver.testFreestream()
+            self.assertAlmostEqual(CFDSolver.Rmax[0], 0.0)
 
 
 class TestFluxes(unittest.TestCase):
@@ -59,7 +50,7 @@ class TestFluxes(unittest.TestCase):
     def test_consistency(self):
         # U = np.vstack((self.uL, self.uL)).T
         F, _ = dg_solver.fluxes.roeflux(self.uL, self.uL, self.n)
-        F_analytic = dg_solver.fluxes.analyticflux(self.uL)
+        F_analytic = dg_solver.fluxes.analyticflux(self.uL).T
         F_analytic = F_analytic[0]*self.n[0] + F_analytic[1]*self.n[1]
         # print('test_consistency', F, F_analytic)
         np.testing.assert_array_almost_equal(F, F_analytic, decimal=6)
@@ -83,7 +74,7 @@ class TestFluxes(unittest.TestCase):
 
         F, _ = dg_solver.fluxes.roeflux(uL, self.uR, self.n)
 
-        F_analytic = dg_solver.fluxes.analyticflux(uL)
+        F_analytic = dg_solver.fluxes.analyticflux(uL).T
         F_analytic = F_analytic[0]*self.n[0] + F_analytic[1]*self.n[1]
 
         # print('test_supersonic', F, F_analytic)
@@ -128,27 +119,27 @@ class TestFluxes(unittest.TestCase):
 #
 
 
-class TestCurvedElement(unittest.TestCase):
+# class TestCurvedElement(unittest.TestCase):
 
-    def setUp(self):
+#     def setUp(self):
 
-        def flatWall(x):
-            return 0
+#         def flatWall(x):
+#             return 0
 
-        def curvWall(x):
-            return -x*(x-1)*0.2
+#         def curvWall(x):
+#             return -x*(x-1)*0.2
 
-        # just a mesh of the reference element
-        self.refElem = Mesh('meshes/refElem.gri', wallGeomFunc=flatWall)
+#         # just a mesh of the reference element
+#         self.refElem = Mesh('meshes/refElem.gri', wallGeomFunc=flatWall)
 
-        # both element types
-        self.curvMesh = Mesh('meshes/twoElem.gri', wallGeomFunc=curvWall)
-        # _, self.curvBasis = quadrules.getTriLagrangeBasis2D(q)
+#         # both element types
+#         self.curvMesh = Mesh('meshes/twoElem.gri', wallGeomFunc=curvWall)
+#         # _, self.curvBasis = quadrules.getTriLagrangeBasis2D(q)
 
-    def test_linear_jacobian(self):
-        invJ, detJ = self.refElem.getLinearJacobian()
-        np.testing.assert_array_equal(invJ[0], np.eye(2))
-        assert detJ[0], 1
+#     def test_linear_jacobian(self):
+#         invJ, detJ = self.refElem.getLinearJacobian()
+#         np.testing.assert_array_equal(invJ[0], np.eye(2))
+#         assert detJ[0], 1
 
     # def test_curved_jacobian(self):
     #     # get the quadrature points for the test

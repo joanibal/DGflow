@@ -1,28 +1,16 @@
 from __future__ import print_function
-# from __future__ import division
-# from readgri import readgri
 
 import numpy as np
 import matplotlib.pyplot as plt
 from meshes import Mesh
 import copy
-# import flux_lib
 import time
-# from solver import fvsolver as solver
-# from solver import mesh as solver_mesh
-# from solver import constants as solver_constants
-# from solver import postprocess as solver_post
 
 from dg_solver import fluxes
 
 import dg_solver
 import quadrules
-# import solver
 
-# TODO
-"""
-
-"""
 
 
 class DGSolver(object):
@@ -31,12 +19,9 @@ class DGSolver(object):
             class to solver for the flow in a given mesh
         """
 
-        # self.mesh = mesh
-        # self.U = np.zeros((mesh.nElem, 4))
         self.order = order
         self.mesh = mesh
         self.mesh.curvOrder = order+1
-        # self.mesh.curvOrder = 3
         self.nStates = 4
 
         # set BC data
@@ -51,12 +36,8 @@ class DGSolver(object):
         self.tempTot_inf = 1 + (self.gamma - 1)/2 * self.mach_Inf**2*self.temp_Inf
         self.Ptot_inf = self.tempTot_inf**(self.gamma/(self.gamma - 1))
 
-        # self.Tt = (1 + 0.5*(self.gamma - 1)*self.mach_Inf**2)*self.temp_Inf
-
-        # set mesh data
 
         # this method assumes that there is only one of each bc type
-
         self.curvWall = -1
         self.wall = -1
         self.inlet = -1
@@ -88,12 +69,12 @@ class DGSolver(object):
         self.initFreestream()
 
         # ====================================================
-        #  Qaud rules for the mesh (get seperate rules for the linear and curved elements)
+        #  Qaud rules for the mesh (get separate rules for the linear and curved elements)
         # ====================================================
 
         self.mesh.getHighOrderNodes()
 
-        # for maximum python efficency these two nearly identical blocks should be a loop
+        # for maximum python efficiency these two nearly identical quadrature variables should be a loop
         # but it works better with fortran this way
 
         # --------------------- Linear Element Quadrature ------------------------
@@ -163,9 +144,13 @@ class DGSolver(object):
         """
             transfers all of the precomputed values to the fortran layer so they can be used for solving
 
-            +1 and reshaping everwhere becuase fortran is index 1 and column major
+            +1 and reshaping everwhere because fortran is index 1 and column major
         """
         self.setBCFortranVariables()
+        # initialize state
+        dg_solver.solver.u = self.U.T
+        dg_solver.solver.res = self.U.T
+
         # quadrature parameters
         dg_solver.quadrature.nlinquadpts1d = self.nLinQuadPts1D
         dg_solver.quadrature.nlinquadpts2d = self.nLinQuadPts2D
@@ -324,33 +309,25 @@ class DGSolver(object):
                        0.0,
                        self.P_inf/(self.gamma-1) + 0.5*self.rho_Inf*u**2])
 
-        # Ub = np.array([1, 0.5, 0, 2.5])
         self.U = np.zeros((self.mesh.nElem, self.nSolBasis, self.nStates))
 
         self.U[:, :] = Ub
         self.Ub = Ub
-        dg_solver.solver.u = self.U.T
-        dg_solver.solver.res = self.U.T
 
-        # print(self.U)
 
-    # def initFromSolve(self, coarseMesh):
 
-    #     for idx, _ in enumerate(coarseMesh.nElem):
-    #         # set the four element that were created from uniform refinement
-    #         self.U[:, 4*(idx-1):4*(idx)] = coarseMesh.U[idx]
 
 # residuals
     def getResidual(self, U):
 
-        # loop over elements and compute residual contribution from interrior
+        # loop over elements and compute residual contribution from interior
         self.R = np.zeros(U.shape)
         self.S = np.zeros(self.mesh.nElem)
 
-        self.getInteralResiduals(U)
+        self.getInternalResiduals(U)
         self.getEdgeResiduals(U)
 
-    def getInteralResiduals(self, U):
+    def getInternalResiduals(self, U):
 
         for idx_elem, elem in enumerate(self.mesh.linElem):
 
@@ -372,11 +349,6 @@ class DGSolver(object):
                 for idx_basis in range(self.nSolBasis):
                     self.R[elem, idx_basis] -= np.dot(np.matmul(self.curvGPhi[qPt, idx_basis], self.curvInvJ[idx_elem, qPt]), flux) *\
                         self.curvQuadWts2D[qPt]*self.curvDetJ[idx_elem, qPt]
-                    #  self.R[elem, idx_basis] -= np.dot(np.matmul(self.linGPhi[qPt, idx_basis], self.linInvJ[idx_elem]), flux) *\
-                    #     self.linQuadWts2D[qPt]*self.linDetJ[idx_elem]
-
-                # self.R[elem, idx_basis] -= Rtot
-        # return R
 
     def getEdgeResiduals(self, U):
         for idx_edge in range(self.mesh.nInEdge):
@@ -392,8 +364,6 @@ class DGSolver(object):
             uR = np.matmul(self.rLinEdgePhi[idx_edge_right], U[idx_elem_right])
 
             for idx_basis in range(self.nSolBasis):
-                # import ipdb
-                # ipdb.set_trace()
                 Rtot_left = np.zeros(self.nStates)
                 Rtot_right = np.zeros(self.nStates)
                 Stot_left = 0
@@ -402,11 +372,8 @@ class DGSolver(object):
 
                     flux, s = fluxes.roeflux(uL[q], uR[q], self.mesh.inNormal[idx_edge])
 
-                    # flux * delta L * wq
                     tmp = flux*self.mesh.inLength[idx_edge] * self.linQuadWts1D[q]
 
-                    # import ipdb
-                    # ipdb.set_trace()
                     Rtot_left += self.lLinEdgePhi[idx_edge_left, q, idx_basis] * tmp
                     Rtot_right += self.rLinEdgePhi[idx_edge_right, q, idx_basis] * tmp
 
@@ -419,8 +386,6 @@ class DGSolver(object):
                 self.S[idx_elem_left] += Stot_left/self.nSolBasis
                 self.S[idx_elem_right] += Stot_right/self.nSolBasis
 
-        # print('in edge', self.R)
-        # print(self.mesh.bcEdge2Elem)
         for idx_edge in range(self.mesh.nBCEdge):
             idx_elem = self.mesh.bcEdge2Elem[idx_edge, 0]
 
@@ -464,9 +429,6 @@ class DGSolver(object):
                     self.R[idx_elem, idx_basis] += Rtot_left
                     self.S[idx_elem] += Stot_left
 
-                    # print('wall', bc,  Rtot_left)
-                    # if bc == self.curvWall:
-                    #     print('wall', elem,  bc == self.curvWall, Rtot_left)
 
             elif bc == self.inlet:
                 for idx_basis in range(self.nSolBasis):
@@ -485,7 +447,6 @@ class DGSolver(object):
 
                     self.R[idx_elem, idx_basis] += Rtot_left
                     self.S[idx_elem] += Stot_left
-                    # print('inlet', Rtot_left)
 
             elif bc == self.outlet:
                 for idx_basis in range(self.nSolBasis):
@@ -495,7 +456,6 @@ class DGSolver(object):
 
                         flux, s = fluxes.outflowflux(uL[q], self.mesh.bcNormal[idx_edge])
 
-                        # flux * delta L * wq
                         tmp = flux*self.mesh.bcLength[idx_edge] * self.linQuadWts1D[q]
 
                         Rtot_left += edgePhi[q, idx_basis] * tmp
@@ -503,7 +463,6 @@ class DGSolver(object):
 
                     self.R[idx_elem, idx_basis] += Rtot_left
                     self.S[idx_elem] += Stot_left
-                    # print('outlet', Rtot_left)
 
             else:
                 print(bc)
@@ -512,21 +471,11 @@ class DGSolver(object):
 # time integration
 
     def TVDRK2(self, cfl):
-        # self.U.reshape()
-
-        # dt = 0.004
         U_FE = np.zeros(self.U.shape)
 
-        # print self.U
-
         self.getResidual(self.U)
-        # print(self.R)
-        # quit()
         dt = 2*self.mesh.area*cfl/self.S
-        # print dt
         for idx_elem in range(self.mesh.nElem):
-            # import ipdb
-            # ipdb.set_trace()
             U_FE[idx_elem] = self.U[idx_elem] - dt[idx_elem] * \
                 np.matmul(self.invM[idx_elem], self.R[idx_elem])
 
@@ -535,44 +484,21 @@ class DGSolver(object):
             self.U[idx_elem] = 0.5*(self.U[idx_elem] + U_FE[idx_elem] -
                                     dt[idx_elem] * np.matmul(self.invM[idx_elem], self.R[idx_elem]))
 
-        # print self.U
 
     def FE(self, cfl):
-        # self.U.reshape()
-
-        # dt = 0.004
-        # U_FE = np.zeros(self.U.shape)
-
-        # print self.U
-
         self.getResidual(self.U)
-        # print(self.R)
-        # quit()
 
         dt = 2*self.mesh.area*cfl/self.S
-        # print dt
         for idx_elem in range(self.mesh.nElem):
-            # import ipdb
-            # ipdb.set_trace()
             self.U[idx_elem] = self.U[idx_elem] - dt[idx_elem] * \
                 np.matmul(self.invM[idx_elem], self.R[idx_elem])
-            # print(idx_elem, np.matmul(self.invM[idx_elem], self.R[idx_elem]))
-        # print(self.U)
-        # print
 
     def TVDRK3(self, cfl):
-        # self.U.reshape()
-
-        # dt = 0.004
         U_1 = np.zeros(self.U.shape)
         U_2 = np.zeros(self.U.shape)
 
-        # print self.U
-
         self.getResidual(self.U)
         dt = 2*self.mesh.area*cfl/self.S
-
-        # print dt
 
         for idx_elem in range(self.mesh.nElem):
             U_1[idx_elem] = self.U[idx_elem] - dt[idx_elem] * \
@@ -588,36 +514,21 @@ class DGSolver(object):
             self.U[idx_elem] = 1.0/3*self.U[idx_elem] + 2.0/3*U_2[idx_elem] - 2.0/3 * dt[idx_elem] * \
                 np.matmul(self.invM[idx_elem], self.R[idx_elem])
 
-        # print self.U
 
     def JRK(self, cfl, nStages=4):
         U_stage = np.zeros(self.U.shape)
-        # U_2 = np.zeros(self.U.shape)
-
-        # print self.U
-
         self.getResidual(self.U)
         dt = 2*self.mesh.area*cfl/self.S
 
-        # quit()
-        # import ipdb
-        # ipdb.set_trace()
         for ii in range(nStages, 1, -1):
-            # U_stage = self.U
-            # print(ii)
             for idx_elem in range(self.mesh.nElem):
                 U_stage[idx_elem] = self.U[idx_elem] - dt[idx_elem]/ii * \
                     np.matmul(self.invM[idx_elem], self.R[idx_elem])
             self.getResidual(U_stage)
-        # print('U_stage', U_stage)
-        # self.U = U_stage
 
         for idx_elem in range(self.mesh.nElem):
             self.U[idx_elem] = self.U[idx_elem] - dt[idx_elem] * \
                 np.matmul(self.invM[idx_elem], self.R[idx_elem])
-
-        # print(self.U)
-        # quit()
 
 
 # solver
@@ -647,7 +558,7 @@ class DGSolver(object):
 
     def solve_python(self, maxIter=10000, tol=1e-7, cfl=0.4, method='JRK'):
 
-        # needed becuase python still uses the flux routines
+        # needed because python still uses the flux routines
         self.setBCFortranVariables()
 
 
@@ -949,60 +860,16 @@ class DGSolver(object):
 
 
 if __name__ == '__main__':
-    # bump = Mesh('meshes/test0_21.gri')
-
-    def flatWall(x):
-        return -x*(x-1)*0.2
-        # return 0
-        # return x*0.1 + 1
 
     def bumpShape(x):
         return 0.0625*np.exp(-25*x**2)
 
     bump = Mesh('meshes/bump0_kfid.gri', wallGeomFunc=bumpShape)
-    # bump = Mesh('meshes/twoElem.gri', wallGeomFunc=flatWall, check=True)
-    # bump = Mesh('meshes/threeElem.gri', wallGeomFunc=flatWall, check=True)
-    # bump = Mesh('meshes/test0_2.gri', wallGeomFunc=flatWall, check=True)
-    # bump = Mesh('meshes/refElem.gri', wallGeomFunc=flatWall)
-    # bump.refine()
-    # bump.refine()
     # bump.refine()
 
-    # test = Mesh('meshes/test0_2.gri', wallGeomFunc=flatWall)
     DGSolver = DGSolver(bump, order=0)
 
 
     DGSolver.solve(maxIter=1000, cfl=0.4)
-    # plt.figure(2)
     DGSolver.postprocess()
-    # DGSolver.plotResiduals()
-
-    # DGSolver.solve_python(maxIter=10000, cfl=0.87, method='TVDRK3')
-    # DGSolver.plotResiduals()
-    # DGSolver.__init__(bump, order=1)
-
-    # DGSolver.solve(maxIter=10000, cfl=0.7)
-    # DGSolver.plotResiduals()
-
-    # DGSolver.__init__(bump, order=2)
-
-    # DGSolver.solve(maxIter=10000, cfl=0.5)
-    # plt.show()
-
-
-    # plt.show()
-    # DGSolver.solve_python(maxIter=15, cfl=0.5)
-    # import ipdb; ipdb.set_trace()
     DGSolver.writeSolution('test_multi_2')
-    # import ipdb
-    # ipdb.set_trace()
-    # t = time.time()
-
-    # print(DGSolver.wallTime)
-    # print(time.time() - t)
-    # DGFVSolver.
-    # DGFVSolver.solve()
-    # DGFVSolver.postprocess()
-    # DGFVSolver.writeSolution('lv0')
-    # DGFVSolver.plotCP()
-    # DGFVSolver.plotResiduals()

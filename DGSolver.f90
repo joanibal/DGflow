@@ -1,11 +1,6 @@
-! f2py -c --f90flags='-O3 -ffast-math -funroll-loops' -m dg_solver DGSolver.f90
-! f2py -c --f90flags='-g -fimplicit-none -fbacktrace -ffree-line-length-0 -fcheck=all -ffpe-trap=zero,overflow,underflow -finit-real=nan' -m dg_solver DGSolver.f90
 
 module types
-  ! integer, parameter:: dp=kind(0.d0)
   integer, parameter:: dp=8
-  ! integer, parameter:: dp=kind(0.0)
-
 end module types
 
 module mesh
@@ -127,13 +122,6 @@ module basis
   ! nSolBasis, nCurvQuadPts1D
 
 end module basis
-
-
-
-
-
-
-
 
 
 module constants
@@ -524,22 +512,10 @@ module residuals
     subroutine getResiduals(U, res, s)
       ! calculates the internal residuals for the new states
 
-      ! use mesh, only: nLinElem, linElem, &
-      !                 nCurvElem, curvElem, &
-      !                 linInvJ, linDetJ, &
-      !                 curvInvJ, curvDetJ
-
-      ! use basis, only: linPhi, linGPhi,   lLinEdgePhi, rLinEdgePhi, &
-      !                  curvPhi, curvGPhi, lCurvEdgePhi, rCurvEdgePhi, &
-      !                  nSolBasis
-
-      ! use fluxes, only: analyticFlux
-
-      ! use quadrature, only: nLinQuadPts2D, linQuadWts2D, &
-      !                       nCurvQuadPts2D, curvQuadWts2D
 
       real(dp), dimension(:, :, :), intent(in):: U
 
+      ! intentionally intent(inout)  so it can be called from python level
       real(dp), dimension(:,:, :), intent(inout):: Res
       real(dp), dimension(:), intent(inout):: S
 
@@ -549,7 +525,7 @@ module residuals
       call getInternalResiduals(U, res)
       call getEdgeResiduals(U, res, S)
 
-      end subroutine ! getResiduals
+    end subroutine ! getResiduals
 
 
     subroutine getInternalResiduals(U, res)
@@ -606,7 +582,6 @@ module residuals
           end do
           do idx_basis = 1,nSolBasis
 
-              ! write(*,*) idx_basis, Res(:, idx_basis, idx_elem)
           end do
 
       end do
@@ -621,6 +596,7 @@ module residuals
 
             call analyticFlux(curvUq(:, qPt), flux)
             do idx_basis = 1,nSolBasis
+              ! compute the res value
               Res(:, idx_basis, idx_elem) = Res(:, idx_basis, idx_elem) &
                         - curvQuadWts2D(qPt) * curvDetJ(qpt,idx_curvElem)*(&
                         (curvGPhi(1, idx_basis, qPt)*curvInvJ(1,1,qPt, idx_curvElem) + &
@@ -633,31 +609,6 @@ module residuals
         end do
 
 
-        ! do idx_linElem = 1,nLinElem
-        !   idx_elem = linElem(idx_linElem)
-        !   ! do qPt = 1, nLinQuadPts2D
-
-        !     do idx_basis = 1,nSolBasis
-        !       write(*,*)  Res(:, idx_basis, idx_elem)
-        !     end do
-        !   ! end do
-        !   write(*,*)
-        ! end do
-
-        ! do idx_curvElem = 1,nCurvElem
-        !   idx_elem = curvElem(idx_curvElem)
-        !   ! do qPt = 1, nCurvQuadPts2D
-
-        !     do idx_basis = 1,nSolBasis
-        !       write(*,*)  Res(:, idx_basis, idx_elem)
-        !     end do
-        !   ! end do
-        !   write(*,*)
-        ! end do
-        ! write(*,*) '---------------------------------'
-
-
-
    end subroutine !getInternalResiduals
 
 
@@ -667,7 +618,7 @@ module residuals
     use mesh, only: nInEdge, inEdge2Elem, inLength, inNormal, &
                     nBCEdge, bcEdge2Elem, bcLength, bcNormal, elem2CurvElem,  &
                     curvDetJEdge, curvNormal, &
-                    curvWall, wall, inlet, outlet, freestream, curvfreestream, nElem
+                    curvWall, wall, inlet, outlet, freestream, curvfreestream
 
 
     use basis, only: lLinEdgePhi, rLinEdgePhi, &
@@ -708,16 +659,12 @@ module residuals
         lU = matmul( U(:, :, idx_elem_left), lLinEdgePhi(:, :, idx_edge_left))
         rU = matmul( U(:, :, idx_elem_right), rLinEdgePhi(:, :, idx_edge_right))
 
-        ! write(*,*) 'lU', shape(lU), lU
-        ! write(*,*) 'rU', shape(rU), rU
-        ! write(*,*) 'inNormal', inNormal(:,idx_edge)
         do qPt = 1,nlinQuadPts1D
 
           fact = inLength(idx_edge) * linQuadWts1D(qPt)
           call roeFlux(lU(:, qPt), rU(:, qPt), inNormal(:, idx_edge), flux, s_face)
           S(idx_elem_left) = S(idx_elem_left) + s_face*fact
           S(idx_elem_right) = S(idx_elem_right) + s_face*fact
-          ! write(*,*) 'flux', flux(:)
           do idx_basis = 1,nSolBasis
             res(:, idx_basis, idx_elem_left) = res(:, idx_basis, idx_elem_left) + &
                                                   flux*lLinEdgePhi(idx_basis, qPt, idx_edge_left)*fact
@@ -740,20 +687,17 @@ module residuals
         idx_edge_loc = bcEdge2Elem(2,idx_edge)
         bc = bcEdge2Elem(3,idx_edge)
 
-        ! write(*,*) idx_elem, idx_edge,  bc
+        ! use different quad points for the linear and curved elements
         if (bc == curvWall .or. bc == curvFreestream) then
-          ! write(*,*) shape(U(:, :, idx_elem_left)), shape(lCurvEdgePhi(:, :, idx_edge_loc)),  bc, bc
           curvLU = matmul( U(:, :, idx_elem), lCurvEdgePhi(:, :, idx_edge_loc))
           idx_curvElem = elem2CurvElem(idx_elem)
-
         else
-          ! write(*,*) shape(U(:, :, idx_elem)), shape(lLinEdgePhi(:, :, idx_edge_loc)), bc
-
           lU = matmul( U(:, :, idx_elem), lLinEdgePhi(:, :, idx_edge_loc))
         end if
-        ! write(*,*) 'no error'
+
+        ! There is some copied code here, but by checking the bc first we avoid
+        ! checking the same condition over and over again in the loop
         if (bc == curvWall) then
-          ! uL = np.matmul(edgePhi, U[idx_elem])
 
           do qPt = 1,nCurvQuadPts1D
 
@@ -765,7 +709,6 @@ module residuals
 
               res(:, idx_basis, idx_elem) = res(:, idx_basis, idx_elem) + &
                         flux*lCurvEdgePhi(idx_basis, qPt, idx_edge_loc)*fact
-              ! write(*,*) idx_basis, qPt, flux*lLinEdgePhi(idx_basis, qPt, idx_edge_loc)*fact
 
             end do
           end do
@@ -819,12 +762,10 @@ module residuals
             fact = bcLength(idx_edge) * linQuadWts1D(qPt)
             call roeFlux(lU(:, qPt), Ub, bcNormal(:,idx_edge), flux, s_face)
             S(idx_elem) = S(idx_elem) + s_face*fact
-            ! write(*,*) 'flux', flux(:)
             do idx_basis = 1, nSolBasis
 
               res(:, idx_basis, idx_elem) = res(:, idx_basis, idx_elem) + &
                         flux*lLinEdgePhi(idx_basis, qPt, idx_edge_loc)*fact
-              ! write(*,*) 'idx_basis', idx_basis, 'flux', flux*lLinEdgePhi(idx_basis, qPt, idx_edge_loc)*fact
 
             end do
 
@@ -842,7 +783,6 @@ module residuals
 
                 res(:, idx_basis, idx_elem) = res(:, idx_basis, idx_elem) + &
                           flux*lCurvEdgePhi(idx_basis, qPt, idx_edge_loc)*fact
-                ! write(*,*) idx_basis, qPt, flux*lLinEdgePhi(idx_basis, qPt, idx_edge_loc)*fact
 
               end do
             end do
@@ -852,19 +792,9 @@ module residuals
           write(*,*) 'bc not regonized', bc
           exit
         end if
-        ! write(*,*) 'bc', bc, 'flux', flux
       end do
 
-      ! do idx_elem = 1,nElem
-      !   ! idx_elem = linElem(idx_linElem)
-      !   ! do qPt = 1, nLinQuadPts2D
 
-      !     do idx_basis = 1,nSolBasis
-      !       write(*,*)  Res(:, idx_basis, idx_elem)
-      !     end do
-      !   ! end do
-      !   write(*,*)
-      ! end do
 
   end subroutine !getResiduals
 
@@ -880,7 +810,6 @@ module Solver
   ! use constants
   use mesh, only: nElem
   implicit none
-  ! integer:: nElem, nInEdge, nBCEdge
 
   real(dp), allocatable,  dimension(:, :, :):: U
       !  4, nelem
@@ -888,13 +817,8 @@ module Solver
   real(dp), allocatable,  dimension(:, :, :):: res
       !  4, nelem
       ! the residual in each cell
-  ! real(dp), allocatable, dimension(:):: S
-      ! nelem
-      ! maximum wave speed in each cell
 
-!   real(dp):: CFL=1.0
 
-!   real(dp), dimension(4):: Ub
   integer, parameter:: iprint=100
 
 contains
@@ -905,7 +829,6 @@ contains
     use residuals, only: getResiduals
 
     use mesh, only: area, invM
-    use basis, only: nSolBasis
 
     integer, intent(in):: maxiter
     real(dp), intent(in):: tol
@@ -915,25 +838,21 @@ contains
     real(dp), dimension(maxiter), intent(out):: res_max
 
     ! Local variables
-    real(dp), allocatable,  dimension(:):: S, dt
+    real(dp), allocatable,  dimension(:):: S  ! maxwave speed in each cell (nElem)
+    real(dp), allocatable,  dimension(:):: dt
     real(dp), allocatable,  dimension(:, :, :):: Ustage
-    integer:: idx, iter, ii, idx_basis
+    integer:: idx, iter, ii
 
 
     write(*,*) 'using JRK nStages:', nStages
 
-    ! allocate(u_sol(4,nElem))
-!     ! allocate(S(nElem), res(4,nElem))
+    ! allocate some local variables
     allocate(S(nElem), dt(nElem))
     allocate(Ustage, mold=U)
-      ! ! write(*,*) 'U', shape(U), shape(Ustage)
-      !     do idx = 1, nElem
-      !       ! # U_stage = self.U
-      !       write(*,*) 'ii', ii
-      !       Ustage(:, :,idx) = U(:,:,idx) - dt(idx)/ii *&
-      !         matmul(invM(:,:,idx), res(:,:,idx))
-      !     enddo
-      do iter = 1, maxiter
+
+    ! iterate until the max number of iterations
+    do iter = 1, maxiter
+
 
         call getResiduals(U, res,S)
 
@@ -947,9 +866,8 @@ contains
 
 
         do ii = nStages, 2, -1
+          ! comupte  the state at the stage
           do idx = 1, nElem
-            ! # U_stage = self.U
-            ! write(*,*) 'ii', ii, shape(invM(:,:,idx)), shape(res(:,:,idx))
             Ustage(:, :,idx) = U(:,:,idx) - dt(idx)/ii *&
               matmul(res(:,:,idx), invM(:,:,idx) )
           enddo
@@ -958,30 +876,18 @@ contains
 
         enddo
 
-        ! write(*,*) 'u_stage'
-        ! do idx = 1, nElem
-        !   do idx_basis = 1,nSolBasis
-        !     write(*,*) Ustage(:, idx_basis,idx)
-        !   enddo
-        !   write(*,*)
-        ! enddo
-
-        ! write(*,*) 'u'
-
+        ! writing this as a seperate loop saves one res calc
         do idx = 1, nElem
-          ! # U_stage = self.U
           U(:, :,idx) = U(:,:,idx) - dt(idx) *&
             matmul(res(:,:,idx), invM(:,:,idx) )
-          ! do idx_basis = 1,nSolBasis
-
-          !   write(*,*) U(:, idx_basis,idx)
-          ! enddo
-          ! write(*,*)
         enddo
 
         res_max(iter) = maxval(abs(res))
 
+        ! print the res_max value every $iprint iterations
         if (mod(iter, iprint) == 0) write(*,*) iter, res_max(iter)
+
+        ! break if the tolerance is reached
         if (res_max(iter) <= tol) exit
 
       enddo
@@ -989,169 +895,3 @@ contains
     deallocate(S, dt, Ustage)
   end subroutine ! solve_JRK
 end module solver
-!   subroutine solve_2ndOrder(maxiter, tol, res_max, res_2)
-!       ! after initalizing use rk2 for time maching
-
-!       use residuals,  only: getResiduals_2ndOrder, getGradU
-
-!       integer, intent(in):: maxiter
-!       real(dp), intent(in):: tol
-!       real(dp), dimension(maxiter), intent(out):: res_max, res_2
-
-!       integer:: idx, iter
-
-!       real(dp), allocatable, dimension(:,:):: U_FE, res, res_FE
-!       real(dp), allocatable,  dimension(:):: S, dt_dA
-
-
-!       IF( ALLOCATED(dU_dX) ) DEALLOCATE( dU_dX )
-!       allocate(U_FE(4,nElem), S(nElem), dt_dA(nElem), res(4,nElem), res_FE(4,nElem), dU_dX(2,4,nElem))
-
-
-!       write(*,*) 'using second order solver'
-!       do iter = 1, maxiter
-
-
-!         ! ! rk2 second stage
-
-!         call getResiduals_2ndOrder(U, dU_dX, res, S)
-
-!         res_max(iter) = maxval(abs(res))
-!         res_2(iter) = norm2(res)
-
-!         if (mod(iter, iprint) == 0) write(*,*) iter, res_max(iter)
-!         if (res_max(iter) <= tol .and. mode==0) exit
-
-!         ! apply explict euler update
-!         do idx = 1, nElem
-!             dt_dA(idx) = 2.0_dp*CFL/S(idx)
-!             U_FE(:,idx) = U(:,idx) - dt_dA(idx) *res(:,idx)
-!         end do
-
-
-!         call getResiduals_2ndOrder(U_FE, dU_dX, res_FE, S)
-
-
-
-!         ! rk2 second stage
-!         do idx = 1, nElem
-!             U(:,idx) = 0.5_dp*(U(:,idx) + U_FE(:,idx) -  dt_dA(idx)*(res_FE(:,idx)))
-!         end do
-
-
-!       end do
-
-
-!       deallocate(U_FE, S, dt_dA, res, res_FE)
-!     end subroutine !solver_2ndorder
-
-
-
-
-
-
-! end module FVSolver
-
-! module postProcess
-!   use types
-
-!   implicit none
-!   real(dp), allocatable, dimension(:) :: p, mach, entropy
-
-!   contains
-
-!   subroutine getFeildVaribles(Es)
-!     use types
-!     use FVsolver, only: U
-!     use mesh, only: nElem, area
-!     use constants, only: tempTot_inf, pTot_inf, R_gasconst, gam
-!     ! returns the pressure in each cell
-
-!     real(dp), intent(out):: Es ! total entropy error
-
-!     real(dp):: entropyTot, areaTot, rhoTot_inf, c
-!     integer:: idx_elem
-
-!     IF( ALLOCATED(p) ) DEALLOCATE( p, entropy, mach )
-
-!     allocate(p(nElem), entropy(nElem), mach(nElem))
-
-
-
-
-!     rhoTot_inf = pTot_inf/(R_gasconst*tempTot_inf)
-!     entropyTot = pTot_inf/rhoTot_inf**gam
-
-
-!     Es = 0
-!     areaTot = 0
-!     do idx_elem = 1, nElem
-!       p(idx_elem) = (gam - 1.0_dp)*(U(4,idx_elem) - 0.5_dp*(norm2(U(2:3,idx_elem))**2)/U(1,idx_elem))
-!       entropy(idx_elem) = p(idx_elem)/ U(1,idx_elem)**gam
-!       Es = Es + (entropy(idx_elem)/entropyTot - 1)**2 * area(idx_elem)
-!       areaTot = AreaTot + area(idx_elem)
-
-
-!       c = sqrt(gam*p(idx_elem)/U(1,idx_elem))
-!       mach(idx_elem) = norm2(U(2:3, idx_elem))/U(1, idx_elem)/c
-!     enddo
-!     Es = sqrt(Es/areaTot)
-
-!   end subroutine !getPressure
-
-!   subroutine getWallPressure(idxs_edge_wall, nWallElem,  pb)
-!     use mesh, only: bcEdge2Elem, elem2dX, bcNormal
-!     use FVsolver, only: U, dU_dX
-!     use constants, only: gam
-
-
-!     integer, intent(in):: nWallElem
-!     integer, dimension(nWallElem), intent(in):: idxs_edge_wall
-!     real(dp), dimension(nWallElem):: pb, p
-!     integer:: idx, idx_elem, idx_edge, idx_state, idx_face
-!     real(dp), dimension(4):: dU, U_edge
-!     real(dp), dimension(2):: dX
-!     real(dp):: rL, unL, qL, utL
-
-!     !f2py intent(in) :: idxs_edge_wall, threshold
-!     !f2py intent(hide), depend(idxs_edge_wall, pb) :: nWallElem = shape(idxs_edge_wall, 0)
-!     !f2py intent(out) pb
-
-
-
-!     ! write(*,*) elem2dX
-
-!     do idx = 1,nWallElem
-!       idx_edge = idxs_edge_wall(idx)
-!       idx_elem = bcEdge2Elem(1,idx_edge)
-!       idx_face = bcEdge2Elem(2,idx_edge)
-
-!       dX= elem2dX(:,bcEdge2Elem(2,idx_edge), idx_elem)
-
-!       ! write(*,*) 'dx', dX
-!       do idx_state = 1,4
-!         dU(idx_state) = dot_product(dX, dU_dX(:, idx_state ,idx) )
-!       end do
-!       U_edge = U(:, idx_elem) + dU
-!       ! write(*,*) 'dU', dU, 'dX', dX, idx_elem
-
-
-!       ! pb(idx) = (gam - 1.0_dp)*(U_edge(4) - 0.5_dp*(norm2(U_edge(2:3))**2)/U_edge(1))
-!       rL = U_edge(1)
-!       unL = dot_product(U_edge(2:3), bcNormal(:,idx_edge))/rL
-!       qL  = sqrt(U_edge(2)**2 + U_edge(3)**2)/rL;
-!       utL = sqrt(qL**2 - unL**2);
-
-!       p(idx) = (gam-1)*(U_edge(4) - 0.5_dp*rL*utL**2)
-
-!       pb(idx) = (gam - 1.0_dp)*(U_edge(4) - 0.5_dp*(norm2(U_edge(2:3))**2)/U_edge(1))
-
-!       write(*,*) p(idx), pb(idx)
-!     enddo
-
-!     end subroutine ! getWallPressure
-
-
-! end module postProcess
-
-

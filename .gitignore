@@ -1,6 +1,6 @@
 *.pyc
 *.dat
-*.png
+# *.png
 
 *.mod
 *.so
@@ -16,3 +16,5 @@
 *.pdf
 *.synctex.gz
 
+*.p
+*.ps
