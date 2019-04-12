@@ -56,7 +56,6 @@ class Mesh(object):
         self.bcEdge2Elem, self.bcNormal, self.bcLength = outputs[3:6]
         self.area, self.cellCenter, self.elem2dX, self.wallEdges = outputs[6:]
         # self.elem2dX, self.cellCenter = self.getDistance2CellCenter()
-
         self.nInEdge = len(self.inEdge2Elem)
         self.nBCEdge = len(self.bcEdge2Elem)
 
@@ -298,10 +297,7 @@ class Mesh(object):
                 # pdb.set_trace()
                 nodesEdgeXY = self.node2Pos[list(edgeNodes)]
                 edgeMidpoint = np.mean(nodesEdgeXY, axis=0)
-                # import ipdb
-                # ipdb.set_trace()
                 elem2dX[idx_elem, jj, :] = edgeMidpoint - cellCenter[idx_elem]
-                # print('distElem', edgeMidpoint, cellCenter, 'edge', idx_face)
 
         return elem2dX, cellCenter
 
@@ -311,7 +307,7 @@ class Mesh(object):
             in each direction for each element
         """
         # check that all the normals are unit
-        if self.inNormal.size:  # check to make sure we have interrior edges
+        if self.inNormal.size:  # check to make sure we have interior edges
             np.testing.assert_almost_equal(np.linalg.norm(
                 self.inNormal, axis=1), np.ones(len(self.inNormal)))
 
@@ -322,8 +318,6 @@ class Mesh(object):
 
         for edgeIdx, IE in enumerate(self.inEdge2Elem):
             length = self.inLength[edgeIdx]
-            # import ipdb
-            # ipdb.set_trace()
             elemRes[IE[0]] += self.inNormal[edgeIdx]*length
             elemRes[IE[2]] -= self.inNormal[edgeIdx]*length
 
@@ -542,11 +536,9 @@ class Mesh(object):
             J = np.array([[nodes[1][0] - nodes[0][0], nodes[2][0] - nodes[0][0]],
                           [nodes[1][1] - nodes[0][1], nodes[2][1] - nodes[0][1]]])
 
-            # map the nodes to physcial space using a linear jacobain
+            # map the nodes to physical space using a linear jacobain
             self.curvNodes[idx_elem] = nodes[0] + np.matmul(J, Xi.T).T
             self.elemIdx2HiOrderElemIdx[elem] = idx_elem
-
-        # print(self.curvNodes[0])
 
         # loop over wall nodes and snap nodes on wall face to edge and move nodes inside up slightly
         for edge in self.bcEdge2Elem[self.wallEdges]:
@@ -593,8 +585,7 @@ class Mesh(object):
 
                     # determine the diplacement from a linear
                     nodes = self.elem2Node[elem]
-                    # import ipdb
-                    # ipdb.set_trace()
+
                     localNodeVec = np.delete(np.arange(3), idx_edge)
                     edgeNodes = self.node2Pos[nodes[localNodeVec]]
 
@@ -602,7 +593,6 @@ class Mesh(object):
                     y = (x - edgeNodes[0, 0])*(edgeNodes[1, 1] - edgeNodes[0, 1]) / \
                         (edgeNodes[1, 0] - edgeNodes[0, 0]) + edgeNodes[0, 1]
                     y_snap = self.wallGeomFunc(x)
-                    # print(idx_row, idx_node, fact)
                     self.curvNodes[idx_hiElem][idx_node][1] += fact*(y_snap - y)
 
             # plt.plot(self.curvNodes[idx_hiElem][:, 0],
@@ -622,38 +612,17 @@ class Mesh(object):
         """
         returns the value of the jacobian at each of the quadrature points evaluated using the supplied basis functions
         """
-        # nBasis, basis = quadrules.getTriLagrangeBasis2D(q)
-        # _, quadWts = quadrules.getQuadPts1D(q+1, 0, 1)
-
-        # quadPts2D = quadrules.getQuadPts2D(q+1)
-        # for pt in quadPts2D:
-
         J = np.zeros((len(quadPts), 2, 2))
         invJ = np.zeros((len(quadPts), 2, 2))
         detJ = np.zeros(len(quadPts))
-        # tang_vec = np.zeros((len(quadPts), 2))
-        # n = np.zeros((len(quadPts), 2))
+
         for idx, pt in enumerate(quadPts):
             _, gphi = basis(pt)
             J[idx] = np.matmul(self.curvNodes[elem].T, gphi[0])
             invJ[idx] = np.linalg.inv(J[idx])
             detJ[idx] = np.linalg.det(J[idx])
-            # print(J[idx])
-            # tang_vec = -J[idx][:, 0] + J[idx][:, 1]
-            # print(J[idx], pt)
-
-            # # the result of crossing the trangent vector with k hat
-            # n[idx] = np.array([tang_vec[0], -tang_vec[1]])
-            # # quit()
-            # # print
-
-            # arclength += np.linalg.norm(t_ds_dsig*quadWts[idx])
-            # print(np.linalg.norm(t_ds_dsig))
-
-        # print(arclength, np.sum(quadWts))
 
         return J, invJ, detJ
-        # for elem in range(self.elemOrder[q]):
 
     def getEdgeJacobain(self, quadPts1D, basis):
         nElem = len(self.curvElem)
@@ -683,8 +652,6 @@ class Mesh(object):
                 J = self.getCurvedJacobian(idx_elem, pts, basis)[0]
 
                 for q in range(len(J)):
-                    # import ipdb
-                    # ipdb.set_trace()
                     tang_vec = J[q][:, 0]*dXi_dX[0] + J[q][:, 1]*dXi_dX[1]
                     normalEdge[idx_elem][edge][q] = np.array([tang_vec[1], -tang_vec[0]])
 
@@ -694,6 +661,7 @@ class Mesh(object):
 
                 # print(edge, self.normalEdge[elem][edge])
         return detJEdge, normalEdge
+
 
         # def plotBCs(self):
         #     for BCname in self.BCs.keys():

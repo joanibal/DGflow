@@ -54,6 +54,9 @@ class DGSolver(object):
                 self.inlet = idx
             elif 'outlet' in bcname:
                 self.outlet = idx
+            elif 'farfield' in bcname:
+                self.freestream = idx
+        # import ipdb; ipdb.set_trace()
         # ====================================================
         #  Basis
         # ====================================================

@@ -48,7 +48,6 @@ class TestFluxes(unittest.TestCase):
 # Roe flux
 
     def test_consistency(self):
-        # U = np.vstack((self.uL, self.uL)).T
         F, _ = dg_solver.fluxes.roeflux(self.uL, self.uL, self.n)
         F_analytic = dg_solver.fluxes.analyticflux(self.uL).T
         F_analytic = F_analytic[0]*self.n[0] + F_analytic[1]*self.n[1]
