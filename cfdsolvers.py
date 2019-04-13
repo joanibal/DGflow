@@ -14,7 +14,7 @@ import quadrules
 
 
 class DGSolver(object):
-    def __init__(self, mesh, order=1):
+    def __init__(self, mesh, order=1,alpha=0.0):
         """
             class to solver for the flow in a given mesh
         """
@@ -31,7 +31,7 @@ class DGSolver(object):
         self.rho_Inf = 1.
         self.P_inf = 1.
         self.temp_Inf = 1.
-        self.alpha = 0.0
+        self.alpha = np.deg2rad(alpha)
 
         self.tempTot_inf = 1 + (self.gamma - 1)/2 * self.mach_Inf**2*self.temp_Inf
         self.Ptot_inf = self.tempTot_inf**(self.gamma/(self.gamma - 1))
@@ -308,8 +308,8 @@ class DGSolver(object):
 
         u = self.mach_Inf*c
         Ub = np.array([self.rho_Inf,
-                       self.rho_Inf*u,
-                       0.0,
+                       self.rho_Inf*u*np.cos(self.alpha),
+                       self.rho_Inf*u*np.sin(self.alpha),
                        self.P_inf/(self.gamma-1) + 0.5*self.rho_Inf*u**2])
 
         self.U = np.zeros((self.mesh.nElem, self.nSolBasis, self.nStates))
@@ -687,7 +687,12 @@ class DGSolver(object):
 
         h = 0.0625
         self.cp_wall /= (self.gamma/2*self.P_inf*self.mach_Inf**2)
-        self.cd, self.cl = self.F/(self.gamma/2*self.P_inf*self.mach_Inf**2*h)
+
+        self.cd = self.F[1]*np.sin(self.alpha) + self.F[0]*np.cos(self.alpha)
+        self.cl = self.F[1]*np.cos(self.alpha) - self.F[0]*np.sin(self.alpha)
+        self.cd /= (self.gamma/2*self.P_inf*self.mach_Inf**2)
+        self.cl /= (self.gamma/2*self.P_inf*self.mach_Inf**2)
+
 
         print('cd', self.cd, 'cl', self.cl, 'Es', self.Es)
         idxs_sorted = np.argsort(self.x_wall)
