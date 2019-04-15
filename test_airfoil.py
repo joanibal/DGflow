@@ -5,14 +5,19 @@ from meshes import Mesh
 
 from cfdsolvers import DGSolver
 import pickle
-# task 1
-
+import copy
 
 airfoil = Mesh('meshes/naca0012.gri')
-# airfoil.plot()
-# plt.show()
-
-CFDSolver = DGSolver(airfoil, order=0,alpha=2)
+alpha = 5.0
+dalpha = 1e-4
+CFDSolver = DGSolver(airfoil, order=0,alpha=alpha)
 CFDSolver.solve()
-CFDSolver.writeSolution('airfoil')
-CFDSolver.postprocess()
+cl = CFDSolver.postprocess()
+dFdX_adjoint = CFDSolver.solveAdjoint()
+
+CFDSolver2 = DGSolver(airfoil, order=0,alpha=alpha+dalpha)
+CFDSolver2.solve()
+cl2 = CFDSolver2.postprocess()
+dFdX_FD = (cl2-cl)/dalpha
+print(dFdX_FD)
+print(dFdX_adjoint)
