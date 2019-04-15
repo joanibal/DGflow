@@ -854,43 +854,48 @@ contains
     do iter = 1, maxiter
 
 
-        call getResiduals(U, res,S)
+      call getResiduals(U, res,S)
+      res_max(iter) = maxval(abs(res))
 
+      ! print the res_max value every $iprint iterations
+      if (mod(iter, iprint) == 0) write(*,*) iter, res_max(iter)
+
+      ! break if the tolerance is reached
+      if (res_max(iter) <= tol) exit
+
+      do idx = 1, nElem
+        ! write(*,*) 'dt(idx)', S(idx)
+        dt(idx) = 2.0_dp*CFL*area(idx)/S(idx)
+        ! write(*,*) 'dt(idx)', dt(idx)
+
+      end do
+
+
+
+      do ii = nStages, 2, -1
+        ! comupte  the state at the stage
         do idx = 1, nElem
-          ! write(*,*) 'dt(idx)', S(idx)
-          dt(idx) = 2.0_dp*CFL*area(idx)/S(idx)
-          ! write(*,*) 'dt(idx)', dt(idx)
-
-        end do
-
-
-
-        do ii = nStages, 2, -1
-          ! comupte  the state at the stage
-          do idx = 1, nElem
-            Ustage(:, :,idx) = U(:,:,idx) - dt(idx)/ii *&
-              matmul(res(:,:,idx), invM(:,:,idx) )
-          enddo
-
-            call getResiduals(Ustage, res,S)
-
-        enddo
-
-        ! writing this as a seperate loop saves one res calc
-        do idx = 1, nElem
-          U(:, :,idx) = U(:,:,idx) - dt(idx) *&
+          Ustage(:, :,idx) = U(:,:,idx) - dt(idx)/ii *&
             matmul(res(:,:,idx), invM(:,:,idx) )
         enddo
 
-        res_max(iter) = maxval(abs(res))
-
-        ! print the res_max value every $iprint iterations
-        if (mod(iter, iprint) == 0) write(*,*) iter, res_max(iter)
-
-        ! break if the tolerance is reached
-        if (res_max(iter) <= tol) exit
+          call getResiduals(Ustage, res,S)
 
       enddo
+
+      ! writing this as a seperate loop saves one res calc
+      do idx = 1, nElem
+        U(:, :,idx) = U(:,:,idx) - dt(idx) *&
+          matmul(res(:,:,idx), invM(:,:,idx) )
+      enddo
+
+
+    enddo
+
+    ! one last residual call to update the residuals even if it reaches max iters
+    ! the senitivity analysis needed updated res
+    call getResiduals(U, res,S)
+
 
     deallocate(S, dt, Ustage)
   end subroutine ! solve_JRK
