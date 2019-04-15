@@ -304,18 +304,23 @@ class DGSolver(object):
 
     def initFreestream(self):
         # calculate conversed qualities
-        c = np.sqrt(self.gamma*self.R_gas*self.temp_Inf)
-
-        u = self.mach_Inf*c
-        Ub = np.array([self.rho_Inf,
-                       self.rho_Inf*u*np.cos(self.alpha),
-                       self.rho_Inf*u*np.sin(self.alpha),
-                       self.P_inf/(self.gamma-1) + 0.5*self.rho_Inf*u**2])
+        Ub = self.getFarFieldState(self.alpha)
 
         self.U = np.zeros((self.mesh.nElem, self.nSolBasis, self.nStates))
 
         self.U[:, :] = Ub
         self.Ub = Ub
+
+    def getFarFieldState(self, alpha):
+        c = np.sqrt(self.gamma*self.R_gas*self.temp_Inf)
+
+        u = self.mach_Inf*c
+        Ub = np.array([self.rho_Inf,
+                       self.rho_Inf*u*np.cos(alpha),
+                       self.rho_Inf*u*np.sin(alpha),
+                       self.P_inf/(self.gamma-1) + 0.5*self.rho_Inf*u**2])
+        return Ub
+
 
 
 
@@ -594,6 +599,51 @@ class DGSolver(object):
         print('wall time', self.wallTime, 'iters', self.nIter, 'Rmax', self.Rmax[-1])
 
 
+# adjoint
+
+    def getdRdW(self, h=1e-5):
+        """
+            use finite difference to compute the sensitivities of each of the residuals with respect to the states
+        """
+        U = copy.copy(self.U)
+        s = np.zeros(len(self.U)) # dummy argument
+        res =  copy.copy(self.R)
+        dR_dW = np.zeros((U.size, U.size))
+
+        idx = 0
+        for idx_elem in range(self.mesh.nElem):
+            for idx_basis in range(self.nSolBasis):
+                for idx_state in range(self.nStates):
+                    # copying the matrix is expensive, but required for accuracy
+                    # when i did it another way I got lots of machine precision
+                    # errors!
+                    U = copy.copy(self.U)
+                    U[idx_elem,idx_basis,idx_state] += h
+                    dg_solver.residuals.getresiduals( U.T,  res.T, s)
+                    dR_dW[:,idx]= ((res - self.R)/h).flatten()
+                    idx += 1
+
+        return dR_dW
+
+
+    def getdRdX(self, h=1e-5):
+        """
+            get the change in sensitives with respect to the design variables
+
+            *** ASSUMING ALPHA IS THE ONLY DESIGN VARIABLE ***
+        """
+        res =  copy.copy(self.R)
+        s = np.zeros(len(self.U)) # dummy argument
+
+        alpha = self.alpha + h
+        Ub = self.getFarFieldState(alpha)
+        dg_solver.constants.ub = Ub
+
+        dg_solver.residuals.getresiduals( self.U.T,  res.T, s)
+        dR_dX = ((res - self.R)/h).flatten()
+
+        return dR_dX
+
 
 
 # postprocess
@@ -722,6 +772,8 @@ class DGSolver(object):
         c = np.sqrt(self.gamma*p/U[:,0])
         m = np.linalg.norm(U[:,1:3], axis=1)/U[:,0]/c
         return m
+
+
     def writeSolution(self, fileName):
         # def writeLine(cmd)
 
@@ -873,12 +925,17 @@ if __name__ == '__main__':
     def bumpShape(x):
         return 0.0625*np.exp(-25*x**2)
 
-    bump = Mesh('meshes/bump0_kfid.gri', wallGeomFunc=bumpShape)
+    # bump = Mesh('meshes/bump0_kfid.gri', wallGeomFunc=bumpShape)
+    airfoil = Mesh('meshes/naca0012.gri')
+    # bump = Mesh('meshes/test0_2.gri', wallGeomFunc=bumpShape)
+    # bump.refine()
+    # bump.refine()
     # bump.refine()
 
-    DGSolver = DGSolver(bump, order=0)
+    DGSolver = DGSolver(airfoil, order=0)
 
-
-    DGSolver.solve(maxIter=1000, cfl=0.4)
-    DGSolver.postprocess()
-    DGSolver.writeSolution('test_multi_2')
+    DGSolver.solve(maxIter=1, cfl=0.4)
+    # DGSolver.getdRdW()
+    # DGSolver.getdRdX()
+    # DGSolver.postprocess()
+    # DGSolver.writeSolution('test_multi_2')
