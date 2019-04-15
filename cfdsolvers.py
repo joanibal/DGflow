@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from meshes import Mesh
 import copy
 import time
-
+from scipy.linalg import solve
 from dg_solver import fluxes
 
 import dg_solver
@@ -644,7 +644,39 @@ class DGSolver(object):
 
         return dR_dX
 
+    def getdFdX(self):
+        """
+            Computes dFdX where F = cl and X = alpha
+            This derivative is hand differentiated and checked against FD
+        """
+        cl = self.postprocess()
+        CF = self.F/(self.gamma/2*self.P_inf*self.mach_Inf**2)
+        dF_dX = -CF[1]*np.sin(self.alpha)-CF[0]*np.cos(self.alpha)
+        return np.atleast_2d(dF_dX)
 
+    def getdFdU(self, h=1e-5):
+        U0 = copy.copy(self.U) # keep a copy to reset to
+        U_shape = U0.shape
+        U = U0.flatten()
+        cl0 = self.postprocess()
+        dF_dU = np.zeros_like(U)
+        for iu in xrange(U.size):
+            # Up = U.copy()
+            dU = np.maximum(h,h*U[iu])
+            U[iu] += dU
+            self.U = U.reshape(U_shape)
+            dF_dU[iu] = (self.postprocess() - cl0)/dU
+            U[iu] -= dU
+        self.U = U0 # reset to original state
+        return dF_dU
+    def solveAdjoint(self):
+        dFdX = self.getdFdX()
+        dFdU = self.getdFdU()
+        dRdU = self.getdRdW()
+        dRdX = self.getdRdX()
+        psi = solve(dRdU.T,dFdU.T)
+        dFdX_total = np.deg2rad(np.asscalar(dFdX - psi.T.dot(dRdX)))# we want dFdX per degree, since input alpha is also in degrees
+        return dFdX_total
 
 # postprocess
     def postprocess(self):
