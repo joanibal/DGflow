@@ -694,11 +694,12 @@ class DGSolver(object):
         self.cl /= (self.gamma/2*self.P_inf*self.mach_Inf**2)
 
 
-        print('cd', self.cd, 'cl', self.cl, 'Es', self.Es)
+        # print('cd', self.cd, 'cl', self.cl, 'Es', self.Es)
         idxs_sorted = np.argsort(self.x_wall)
         self.x_wall = self.x_wall[idxs_sorted]
         # self.p_wall = self.p_wall[idxs_sorted]
         self.cp_wall = self.cp_wall[idxs_sorted]
+        return self.cl
 
     def plotResiduals(self):
         plt.semilogy(range(1, self.nIter+1), self.Rmax, label='order: ' + str(self.order))
