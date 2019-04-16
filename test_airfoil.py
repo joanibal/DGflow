@@ -14,10 +14,10 @@ CFDSolver = DGSolver(airfoil, order=0,alpha=alpha)
 CFDSolver.solve()
 cl = CFDSolver.postprocess()
 dFdX_adjoint = CFDSolver.solveAdjoint()
+print(dFdX_adjoint)
 
 CFDSolver2 = DGSolver(airfoil, order=0,alpha=alpha+dalpha)
 CFDSolver2.solve()
 cl2 = CFDSolver2.postprocess()
 dFdX_FD = (cl2-cl)/dalpha
 print(dFdX_FD)
-print(dFdX_adjoint)

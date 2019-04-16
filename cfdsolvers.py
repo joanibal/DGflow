@@ -655,27 +655,41 @@ class DGSolver(object):
         return np.atleast_2d(dF_dX)
 
     def getdFdU(self, h=1e-5):
-        U0 = copy.copy(self.U) # keep a copy to reset to
-        U_shape = U0.shape
-        U = U0.flatten()
-        cl0 = self.postprocess()
-        dF_dU = np.zeros_like(U)
-        for iu in xrange(U.size):
-            # Up = U.copy()
-            dU = np.maximum(h,h*U[iu])
-            U[iu] += dU
-            self.U = U.reshape(U_shape)
-            dF_dU[iu] = (self.postprocess() - cl0)/dU
-            U[iu] -= dU
-        self.U = U0 # reset to original state
+        cl0 = self.postprocess()    
+        dF_dU = np.zeros(self.U.size)
+        F_elems = self.mesh.bcEdge2Elem[self.mesh.wallEdges][:,0] # these are the boundary elems that affect cl
+        for idx_elem in F_elems: # we only loop over these
+            for idx_basis in range(self.nSolBasis):
+                for idx_state in range(self.nStates):
+                    idx = idx_elem*self.nSolBasis*self.nStates + idx_basis*self.nStates + idx_state
+                    self.U[idx_elem,idx_basis,idx_state] += h
+                    dF_dU[idx] = (self.postprocess() - cl0)/h
+                    self.U[idx_elem,idx_basis,idx_state] -= h
         return dF_dU
     def solveAdjoint(self):
+        """
+            Solves the adjoint equation, and computes total derivative
+        """
+        t0 = time.time()
         dFdX = self.getdFdX()
+        t1 = time.time()
         dFdU = self.getdFdU()
+        t2 = time.time()
         dRdU = self.getdRdW()
+        t3 = time.time()
         dRdX = self.getdRdX()
+        t4 = time.time()
         psi = solve(dRdU.T,dFdU.T)
+        t5 = time.time()
         dFdX_total = np.deg2rad(np.asscalar(dFdX - psi.T.dot(dRdX)))# we want dFdX per degree, since input alpha is also in degrees
+        t6 = time.time()
+        print('dFdx took ',t1-t0,' seconds')
+        print('dFdU took ',t2-t1,' seconds')
+        print('dRdU took ',t3-t2,' seconds')
+        print('dRdx took ',t4-t3,' seconds')
+        print('solving adjoint took ',t5-t4,' seconds')
+        print('solving total derivative took ',t6-t5,' seconds')
+        print('Total time: ',t6-t0,' seconds')
         return dFdX_total
 
 # postprocess
