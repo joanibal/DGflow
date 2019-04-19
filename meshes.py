@@ -364,7 +364,7 @@ class Mesh(object):
 
                     if self.wallGeomFunc and 'wall' in bcGroupName:
                         # use the analytic function for the wall geometry to snap the point to the wall
-                        newNodesPos[idx_edge][1] = self.wallGeomFunc(newNodesPos[idx_edge][0])
+                        newNodesPos[idx_edge][1] = self.wallGeomFunc(newNodesPos[idx_edge][0], newNodesPos[idx_edge][1])
 
             # now we have calculated all the new nodes, loop over the faces and create the elems
             for idx_edge, n in enumerate(nodes):
@@ -427,7 +427,7 @@ class Mesh(object):
 
                     if self.wallGeomFunc and 'curv' in bcGroupName:
                         # use the analytic function for the wall geometry to snap the point to the wall
-                        node2Pos[nodeIdx][1] = self.wallGeomFunc(node2Pos[nodeIdx][0])
+                        node2Pos[nodeIdx][1] = self.wallGeomFunc(node2Pos[nodeIdx][0], node2Pos[nodeIdx][1])
 
                 newNodes[idx_edge] = newEdgeNodes[1]
                 # add node numbers to the list of bou
@@ -547,8 +547,8 @@ class Mesh(object):
             idx_hiElem = self.elemIdx2HiOrderElemIdx[elem]
             idx_face = edge[1]
 
-            # plt.plot(self.curvNodes[idx_hiElem][:, 0],
-            #          self.curvNodes[idx_hiElem][:, 1], '-o')
+            plt.plot(self.curvNodes[idx_hiElem][:, 0],
+                     self.curvNodes[idx_hiElem][:, 1], 'o')
 
             # depending on which face is on the wall different nodes need to be adjusted
             nodes2Move = []
@@ -580,25 +580,27 @@ class Mesh(object):
                 raise NotImplementedError
 
             # snap wall elements y position
-            for idx_row, fact in enumerate(np.linspace(1, 0, q)[:-1]):
-                for idx_node in nodes2Move[idx_row]:
+        # for idx_row, fact in enumerate(np.linspace(1, 0, q)[:-1]):
+            fact = 1
+            idx_row = 0
+            for idx_node in nodes2Move[idx_row]:
 
-                    # determine the diplacement from a linear
-                    nodes = self.elem2Node[elem]
+                # determine the diplacement from a linear
+                nodes = self.elem2Node[elem]
 
-                    localNodeVec = np.delete(np.arange(3), idx_edge)
-                    edgeNodes = self.node2Pos[nodes[localNodeVec]]
+                localNodeVec = np.delete(np.arange(3), idx_edge)
+                edgeNodes = self.node2Pos[nodes[localNodeVec]]
 
-                    x = self.curvNodes[idx_hiElem][idx_node][0]
-                    y = (x - edgeNodes[0, 0])*(edgeNodes[1, 1] - edgeNodes[0, 1]) / \
-                        (edgeNodes[1, 0] - edgeNodes[0, 0]) + edgeNodes[0, 1]
-                    y_snap = self.wallGeomFunc(x)
-                    self.curvNodes[idx_hiElem][idx_node][1] += fact*(y_snap - y)
+                x = self.curvNodes[idx_hiElem][idx_node][0]
+                y = (x - edgeNodes[0, 0])*(edgeNodes[1, 1] - edgeNodes[0, 1]) / \
+                    (edgeNodes[1, 0] - edgeNodes[0, 0]) + edgeNodes[0, 1]
+                y_snap = self.wallGeomFunc(x, y)
+                self.curvNodes[idx_hiElem][idx_node][1] += fact*(y_snap - y)
 
-            # plt.plot(self.curvNodes[idx_hiElem][:, 0],
-            #          self.curvNodes[idx_hiElem][:, 1], '-o')
-            # plt.show()
+            plt.plot(self.curvNodes[idx_hiElem][:, 0],
+                     self.curvNodes[idx_hiElem][:, 1], '*')
 
+        plt.show()
         # print(self.curvNodes[0])
         # print(idx_face, nodes2Move)
         # plt.xlabel('X')
@@ -661,7 +663,6 @@ class Mesh(object):
 
                 # print(edge, self.normalEdge[elem][edge])
         return detJEdge, normalEdge
-
 
         # def plotBCs(self):
         #     for BCname in self.BCs.keys():

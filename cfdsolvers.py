@@ -56,7 +56,6 @@ class DGSolver(object):
                 self.outlet = idx
             elif 'farfield' in bcname:
                 self.freestream = idx
-        # import ipdb; ipdb.set_trace()
         # ====================================================
         #  Basis
         # ====================================================
@@ -263,8 +262,6 @@ class DGSolver(object):
         Phi = np.zeros((nQuadPts2D, self.nSolBasis))
         dPhi_dXi = np.zeros((nQuadPts2D, self.nSolBasis, self.mesh.nDim))
 
-        # import ipdb
-        # ipdb.set_trace()
         for idx, pt in enumerate(quadPts2D):
             # the basis function value at each of the quad points
             Phi[idx], dPhi_dXi[idx] = self.solBasis(pt)
@@ -407,7 +404,6 @@ class DGSolver(object):
                 quadWts = self.curvQuadWts1D
                 elem = np.where(self.mesh.curvElem == idx_elem)[0][0]
                 # print(bc, idx_edge, idx_elem)
-                # import ipdb; ipdb.set_trace()
             else:
                 edgePhi = self.lLinEdgePhi[idx_edge_loc]
                 nQuadPts = self.nLinQuadPts1D
@@ -559,7 +555,6 @@ class DGSolver(object):
         self.R = dg_solver.solver.res.T
 
 
-
         self.Rmax = self.Rmax[self.Rmax > 0]
         self.nIter = len(self.Rmax)
         print('wall time', self.wallTime, 'iters', self.nIter, 'Rmax', self.Rmax[-1])
@@ -655,7 +650,7 @@ class DGSolver(object):
         return np.atleast_2d(dF_dX)
 
     def getdFdU(self, h=1e-5):
-        cl0 = self.postprocess()    
+        cl0 = self.postprocess()
         dF_dU = np.zeros(self.U.size)
         F_elems = self.mesh.bcEdge2Elem[self.mesh.wallEdges][:,0] # these are the boundary elems that affect cl
         for idx_elem in F_elems: # we only loop over these
@@ -764,7 +759,6 @@ class DGSolver(object):
                     # Xpts = np.matmul(geomPhi, nodesPos)
 
 
-            # import ipdb; ipdb.set_trace()
 
             for qPt in range(self.nCurvQuadPts1D):
                 P = (self.gamma - 1.)*(Uq[qPt, 3] - 0.5*(np.linalg.norm(Uq[qPt, 1:3])**2)/Uq[qPt, 0])
@@ -812,7 +806,6 @@ class DGSolver(object):
 
 
     def getMachNumber(self, U):
-        # import ipdb; ipdb.set_trace()
         p = (self.gamma - 1.)*(U[:,3] - 0.5*(np.linalg.norm(U[:,1:3], axis=1)**2)/U[:,0])
 
         c = np.sqrt(self.gamma*p/U[:,0])
@@ -821,7 +814,6 @@ class DGSolver(object):
 
 
     def writeSolution(self, fileName):
-        # def writeLine(cmd)
 
         # so all the array values are printed
         np.set_printoptions(threshold=np.inf)
@@ -880,8 +872,7 @@ class DGSolver(object):
                     for i in range(k-1):
                         conn.append([row[i], row[i+1], row[i+1]+k-1])
                 conn = np.array(conn)
-                # import ipdb
-                # ipdb.set_trace()
+
 
                 geomPhi = np.zeros((len(Xi), nBasis))
                 solPhi = np.zeros((len(Xi), self.nSolBasis))
@@ -957,11 +948,9 @@ class DGSolver(object):
 
         #change all bc conditions to freestream
         self.mesh.bcEdge2Elem[:,2] = self.freestream
-        # import ipdb; ipdb.set_trace()
         self.mesh.bcEdge2Elem[oldBCEdge2Elem[:,2] == self.curvWall, 2] = self.curvFreestream
 
         self.solve(maxIter=1000, tol=1e-32, cfl=0.4)
-        # import ipdb; ipdb.set_trace()
 
         self.mesh.bcEdge2Elem[:,2] = oldBCEdge2Elem[:,2]
 
