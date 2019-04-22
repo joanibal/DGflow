@@ -494,7 +494,7 @@ class Mesh(object):
             nodes = np.vstack((nodes, nodes[0]))
             plt.plot(nodes[:, 0], nodes[:, 1], 'b')
 
-        plt.show()
+        # plt.show()
 
     def getLinearJacobian(self):
         nElem = len(self.linElem)
@@ -600,7 +600,7 @@ class Mesh(object):
             plt.plot(self.curvNodes[idx_hiElem][:, 0],
                      self.curvNodes[idx_hiElem][:, 1], '*')
 
-        plt.show()
+        # plt.show()
         # print(self.curvNodes[0])
         # print(idx_face, nodes2Move)
         # plt.xlabel('X')
