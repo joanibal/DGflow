@@ -23,14 +23,15 @@ airfoil = Mesh('meshes/naca0012.gri', wallGeomFunc=naca0012)
 airfoil.refine()
 alpha = 5.0
 dalpha = 1e-4
+
 order = 2
 CFDSolver = DGSolver(airfoil, order=order, alpha=alpha)
 CFDSolver.solve()
 cl = CFDSolver.postprocess()
-CFDSolver.writeSolution('airfoil')
 
-# dFdX_adjoint = CFDSolver.solveAdjoint()
+dFdX_adjoint = CFDSolver.solveAdjoint()
 # print(dFdX_adjoint)
+CFDSolver.writeSolution('airfoil')
 
 # CFDSolver2 = DGSolver(airfoil, order=order,alpha=alpha+dalpha)
 # CFDSolver2.solve()

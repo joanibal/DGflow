@@ -25,6 +25,7 @@ class DGSolver(object):
         self.mesh = mesh
         self.mesh.curvOrder = order+1
         self.nStates = 4
+        self.psi = None
 
         # set BC data
         self.gamma = 1.4
@@ -540,6 +541,9 @@ class DGSolver(object):
 # solver
     def solve(self, maxIter=10000, tol=1e-7, cfl=0.4, method='JRK', nStages=4):
 
+        if self.psi is not None:
+            self.psi = None
+
         # tranfer precomputed values to the fortran layer
         self.setAllFortranVariables()
 
@@ -677,9 +681,10 @@ class DGSolver(object):
         t3 = time.time()
         dRdX = self.getdRdX()
         t4 = time.time()
+
         psi = spsolve(dRdU.transpose(),dFdU.T)
         t5 = time.time()
-        dFdX_total = np.deg2rad(np.asscalar(dFdX - psi.T.dot(dRdX)))# we want dFdX per degree, since input alpha is also in degrees
+        dFdX_total = np.deg2rad(np.asscalar(dFdX - self.psi.T.dot(dRdX)))# we want dFdX per degree, since input alpha is also in degrees
         t6 = time.time()
         print('dFdx took ',t1-t0,' seconds')
         print('dFdU took ',t2-t1,' seconds')
@@ -825,8 +830,21 @@ class DGSolver(object):
         with open(fileName + '.dat', 'w') as fid:
 
             fid.write('TITLE = "bump"\n')
+
+            # Variable names
+            var_list = ['X', 'Y', 'U', 'V', 'rho', 'M', 'Index']
+            if self.psi is not None:
+                psimat = self.psi.reshape(self.mesh.nElem, self.nSolBasis, self.nStates)
+                var_list += ['psi1', 'psi2', 'psi3', 'psi4']
             # fid.write('Variables="X", "Y", "U", "V", "rho", "P", "M", "rhoRes"\n')
-            fid.write('Variables="X", "Y", "U", "V", "rho", "M", "Index"\n')
+            var_string = 'Variables='
+            for i, var in enumerate(var_list):
+                var_string += '"{}"'.format(var)
+                if i < len(var_list) - 1:
+                    var_string += ', '
+                else:
+                    var_string += '\n'
+            fid.write(var_string)
 
             elemOrder = {
                 self.mesh.curvOrder: np.array([], dtype=int),
@@ -895,7 +913,6 @@ class DGSolver(object):
                     Upts = np.matmul(solPhi, self.U[elem])
                     Xpts = np.matmul(geomPhi, nodesPos)
 
-
                     # ---------------- calculate mach number
                     Mpts = self.getMachNumber(Upts)
 
@@ -933,6 +950,12 @@ class DGSolver(object):
                     fid.write('#number Data \n')
                     fid.write(str(np.ones(N)*elem+1)[1:-1]+'\n')
 
+                    if self.psi is not None:
+                        psipts = np.matmul(solPhi, psimat[idx_elem, :, :])
+                        fid.write('#Adjoint data\n')
+                        for i in range(4):
+                            fid.write(str(psipts[:,i])[1:-1]+'\n')
+
                     fid.write('#Connectivity List\n')
                     for idx in range(len(conn)):
                         fid.write(str(conn[idx])[1:-1]+'\n')
@@ -960,20 +983,22 @@ class DGSolver(object):
 
 if __name__ == '__main__':
 
-    def bumpShape(x):
+    def bumpShape(x, y):
         return 0.0625*np.exp(-25*x**2)
 
-    # bump = Mesh('meshes/bump0_kfid.gri', wallGeomFunc=bumpShape)
-    airfoil = Mesh('meshes/naca0012.gri')
-    # bump = Mesh('meshes/test0_2.gri', wallGeomFunc=bumpShape)
-    # bump.refine()
-    # bump.refine()
-    # bump.refine()
+    grid = Mesh('meshes/bump0_kfid.gri', wallGeomFunc=bumpShape)
+    # grid = Mesh('meshes/naca0012.gri')
+    # grid = Mesh('meshes/test0_2.gri', wallGeomFunc=bumpShape)
+    # grid.refine()
+    # grid.refine()
+    # grid.refine()
 
-    DGSolver = DGSolver(airfoil, order=0)
+    DGSolver = DGSolver(grid, order=1)
 
-    DGSolver.solve(maxIter=1, cfl=0.4)
+    DGSolver.solve(maxIter=10000, cfl=0.4)
+
+    dFdX_adjoint = DGSolver.solveAdjoint()
     # DGSolver.getdRdW()
     # DGSolver.getdRdX()
     # DGSolver.postprocess()
-    # DGSolver.writeSolution('test_multi_2')
+    DGSolver.writeSolution('test')
