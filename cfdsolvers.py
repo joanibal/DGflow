@@ -16,7 +16,7 @@ import quadrules
 
 
 class DGSolver(object):
-    def __init__(self, mesh, order=1,alpha=0.0):
+    def __init__(self, mesh, order=1,alpha=0.0,mach=0.5):
         """
             class to solver for the flow in a given mesh
         """
@@ -29,7 +29,7 @@ class DGSolver(object):
 
         # set BC data
         self.gamma = 1.4
-        self.mach_Inf = 0.5
+        self.mach_Inf = mach
         self.R_gas = 1.0
         self.rho_Inf = 1.
         self.P_inf = 1.
@@ -624,8 +624,7 @@ class DGSolver(object):
                     row = ((res - self.R)/h).flatten() # we save the Jacobian row-wise because LIL format is more efficient
                     dR_dW[idx,:] = row
                     idx += 1
-
-        return dR_dW.transpose() # here we transpose back to get correct orientation
+        return dR_dW.tocsr().transpose() # here we transpose back to get correct orientation
 
 
     def getdRdX(self, h=1e-5):
@@ -682,7 +681,7 @@ class DGSolver(object):
         dRdX = self.getdRdX()
         t4 = time.time()
 
-        psi = spsolve(dRdU.transpose(),dFdU.T)
+        self.psi = spsolve(dRdU.transpose(),dFdU.T)
         t5 = time.time()
         dFdX_total = np.deg2rad(np.asscalar(dFdX - self.psi.T.dot(dRdX)))# we want dFdX per degree, since input alpha is also in degrees
         t6 = time.time()
@@ -951,7 +950,7 @@ class DGSolver(object):
                     fid.write(str(np.ones(N)*elem+1)[1:-1]+'\n')
 
                     if self.psi is not None:
-                        psipts = np.matmul(solPhi, psimat[idx_elem, :, :])
+                        psipts = np.matmul(solPhi, psimat[elem, :, :])
                         fid.write('#Adjoint data\n')
                         for i in range(4):
                             fid.write(str(psipts[:,i])[1:-1]+'\n')

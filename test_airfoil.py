@@ -8,6 +8,13 @@ from cfdsolvers import DGSolver
 import pickle
 import copy
 
+def unpickleFile(fname):
+    with open(fname, 'rb') as handle:
+        b = pickle.load(handle)
+    return b
+def pickleFile(fname,obj):
+    with open(fname, 'wb') as handle:
+        pickle.dump(obj, handle)
 
 def naca0012(x, y):
     if y > 0:
@@ -24,14 +31,19 @@ airfoil.refine()
 alpha = 5.0
 dalpha = 1e-4
 
-order = 2
-CFDSolver = DGSolver(airfoil, order=order, alpha=alpha)
+order = int(0)
+CFDSolver = DGSolver(airfoil, order=order, alpha=alpha,mach=1.5)
 CFDSolver.solve()
 cl = CFDSolver.postprocess()
 
 dFdX_adjoint = CFDSolver.solveAdjoint()
-# print(dFdX_adjoint)
-CFDSolver.writeSolution('airfoil')
+print(dFdX_adjoint)
+CFDSolver.writeSolution('airfoil_'+str(order)+'_high_mach')
+solution = {
+    'U' : CFDSolver.U,
+    'psi' : CFDSolver.psi,
+}
+pickleFile('airfoil_'+str(order)+'_high_mach.pkl',solution)
 
 # CFDSolver2 = DGSolver(airfoil, order=order,alpha=alpha+dalpha)
 # CFDSolver2.solve()
