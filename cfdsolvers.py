@@ -609,21 +609,32 @@ class DGSolver(object):
         U = copy.copy(self.U)
         s = np.zeros(len(self.U)) # dummy argument
         res =  copy.copy(self.R)
-        dR_dW = lil_matrix((U.size, U.size)) # sparse LIL format 
+        dg_solver.residuals.getresiduals( U.T,  res.T, s)
+        res0 =  copy.copy(res) # for accuracy
+
+        dR_dW = lil_matrix((U.size, U.size)) # sparse LIL format
 
         idx = 0
         for idx_elem in range(self.mesh.nElem):
             for idx_basis in range(self.nSolBasis):
                 for idx_state in range(self.nStates):
-                    # copying the matrix is expensive, but required for accuracy
-                    # when i did it another way I got lots of machine precision
-                    # errors!
-                    U = copy.copy(self.U)
+                    Uold = U[idx_elem,idx_basis,idx_state]
+
                     U[idx_elem,idx_basis,idx_state] += h
                     dg_solver.residuals.getresiduals( U.T,  res.T, s)
-                    row = ((res - self.R)/h).flatten() # we save the Jacobian row-wise because LIL format is more efficient
+                    U[idx_elem,idx_basis,idx_state] = Uold # to prevent substractive errors
+
+                    row = ((res - res0)/h).flatten() # we save the Jacobian row-wise because LIL format is more efficient
                     dR_dW[idx,:] = row
+
                     idx += 1
+
+        # plt.spy(dR_dW.todense())
+        # frame1 = plt.gca()
+        # frame1.axes.get_xaxis().set_visible(False)
+        # frame1.axes.get_yaxis().set_visible(False)
+        # plt.show()
+
         return dR_dW.tocsr().transpose() # here we transpose back to get correct orientation
 
 
@@ -680,7 +691,6 @@ class DGSolver(object):
         t3 = time.time()
         dRdX = self.getdRdX()
         t4 = time.time()
-
         self.psi = spsolve(dRdU.transpose(),dFdU.T)
         t5 = time.time()
         dFdX_total = np.deg2rad(np.asscalar(dFdX - self.psi.T.dot(dRdX)))# we want dFdX per degree, since input alpha is also in degrees
@@ -992,9 +1002,9 @@ if __name__ == '__main__':
     # grid.refine()
     # grid.refine()
 
-    DGSolver = DGSolver(grid, order=1)
+    DGSolver = DGSolver(grid, order=0)
 
-    DGSolver.solve(maxIter=10000, cfl=0.4)
+    DGSolver.solve(maxIter=1, cfl=0.4)
 
     dFdX_adjoint = DGSolver.solveAdjoint()
     # DGSolver.getdRdW()
