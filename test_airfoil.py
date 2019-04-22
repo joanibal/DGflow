@@ -23,7 +23,9 @@ airfoil = Mesh('meshes/naca0012.gri', wallGeomFunc=naca0012)
 airfoil.refine()
 alpha = 5.0
 dalpha = 1e-4
-CFDSolver = DGSolver(airfoil, order=0, alpha=alpha)
+
+order = 2
+CFDSolver = DGSolver(airfoil, order=order, alpha=alpha)
 CFDSolver.solve()
 cl = CFDSolver.postprocess()
 
@@ -31,7 +33,7 @@ dFdX_adjoint = CFDSolver.solveAdjoint()
 # print(dFdX_adjoint)
 CFDSolver.writeSolution('airfoil')
 
-# CFDSolver2 = DGSolver(airfoil, order=0,alpha=alpha+dalpha)
+# CFDSolver2 = DGSolver(airfoil, order=order,alpha=alpha+dalpha)
 # CFDSolver2.solve()
 # cl2 = CFDSolver2.postprocess()
 # dFdX_FD = (cl2-cl)/dalpha

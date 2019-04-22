@@ -6,6 +6,8 @@ from meshes import Mesh
 import copy
 import time
 from scipy.linalg import solve
+from scipy.sparse import lil_matrix,csr_matrix
+from scipy.sparse.linalg import spsolve
 from dg_solver import fluxes
 
 import dg_solver
@@ -607,7 +609,7 @@ class DGSolver(object):
         U = copy.copy(self.U)
         s = np.zeros(len(self.U)) # dummy argument
         res =  copy.copy(self.R)
-        dR_dW = np.zeros((U.size, U.size))
+        dR_dW = lil_matrix((U.size, U.size)) # sparse LIL format 
 
         idx = 0
         for idx_elem in range(self.mesh.nElem):
@@ -619,10 +621,11 @@ class DGSolver(object):
                     U = copy.copy(self.U)
                     U[idx_elem,idx_basis,idx_state] += h
                     dg_solver.residuals.getresiduals( U.T,  res.T, s)
-                    dR_dW[:,idx]= ((res - self.R)/h).flatten()
+                    row = ((res - self.R)/h).flatten() # we save the Jacobian row-wise because LIL format is more efficient
+                    dR_dW[idx,:] = row
                     idx += 1
 
-        return dR_dW
+        return dR_dW.transpose() # here we transpose back to get correct orientation
 
 
     def getdRdX(self, h=1e-5):
@@ -678,7 +681,8 @@ class DGSolver(object):
         t3 = time.time()
         dRdX = self.getdRdX()
         t4 = time.time()
-        self.psi = solve(dRdU.T,dFdU.T)
+
+        psi = spsolve(dRdU.transpose(),dFdU.T)
         t5 = time.time()
         dFdX_total = np.deg2rad(np.asscalar(dFdX - self.psi.T.dot(dRdX)))# we want dFdX per degree, since input alpha is also in degrees
         t6 = time.time()
